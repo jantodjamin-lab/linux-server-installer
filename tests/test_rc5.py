@@ -326,3 +326,17 @@ class CapturedProviderTests(unittest.TestCase):
             accepted=read_sources(root,sorted(uris))
             self.assertTrue(accepted['entries'])
             self.assertTrue(all(e['signed_by'].startswith('/usr/share/keyrings/ubuntu-archive-keyring.gpg') for e in accepted['entries']))
+
+
+class RealTTYTests(unittest.TestCase):
+    def test_actual_nonseekable_terminal_confirmation(self):
+        import pty
+        from apply import open_terminal
+        master,slave=pty.openpty()
+        try:
+            token='INSTALL '+'a'*12+'\n'
+            os.write(master,token.encode())
+            args=argparse.Namespace(approval=None,snapshot_confirmed=True,allow_unvalidated=True)
+            with patch('apply.sys.stdin.isatty',return_value=True), open_terminal(os.ttyname(slave)) as terminal:
+                confirm(args,{'request_id':'a'*64},terminal)
+        finally:os.close(master);os.close(slave)

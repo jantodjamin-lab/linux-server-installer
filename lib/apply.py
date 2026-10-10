@@ -1,5 +1,7 @@
 """One authorization of bounded intent before any metadata or target write."""
 import json
+from contextlib import contextmanager
+from types import SimpleNamespace
 import os
 from pathlib import Path
 import sys
@@ -41,27 +43,31 @@ def request_summary(intent, observed):
     return '\n'.join(lines)
 
 
+@contextmanager
+def open_terminal(path='/dev/tty'):
+    # A real TTY is non-seekable: Python r+ uses BufferedRandom and fails.
+    # Separate read/write streams work on a terminal without capturing passwords.
+    with open(path,'r',encoding='utf-8') as reader, open(path,'w',encoding='utf-8') as writer:
+        yield SimpleNamespace(readline=reader.readline,write=writer.write,flush=writer.flush)
+
+
 def confirm(args, intent, tty=None):
     if args.approval:
         if args.approval!='INSTALL:'+intent['request_id']: raise ValueError('intent-approval-mismatch')
         if not args.snapshot_confirmed or not args.allow_unvalidated: raise ValueError('explicit-snapshot-and-candidate-required')
         return
     if not sys.stdin.isatty(): raise ValueError('interactive-confirmation-required')
-    owned=False
     if tty is None:
-        tty=open('/dev/tty','r+',encoding='utf-8');owned=True
-    try:
-        if not args.snapshot_confirmed:
-            tty.write('Fresh restorable snapshot confirmed? Type yes or no: ');tty.flush()
-            if tty.readline().strip()!='yes': raise ValueError('snapshot-not-confirmed')
-        if not args.allow_unvalidated:
-            tty.write('This candidate is NOT LIVE VALIDATED. Accept disposable-test risk? Type yes or no: ');tty.flush()
-            if tty.readline().strip()!='yes': raise ValueError('unvalidated-candidate-not-accepted')
-        token='INSTALL '+intent['request_id'][:12]
-        tty.write('Authorize refresh + resolve + installation within these limits. Type '+token+': ');tty.flush()
-        if tty.readline().strip()!=token: raise ValueError('installation-not-confirmed')
-    finally:
-        if owned: tty.close()
+        with open_terminal() as terminal: return confirm(args,intent,terminal)
+    if not args.snapshot_confirmed:
+        tty.write('Fresh restorable snapshot confirmed? Type yes or no: ');tty.flush()
+        if tty.readline().strip()!='yes': raise ValueError('snapshot-not-confirmed')
+    if not args.allow_unvalidated:
+        tty.write('This candidate is NOT LIVE VALIDATED. Accept disposable-test risk? Type yes or no: ');tty.flush()
+        if tty.readline().strip()!='yes': raise ValueError('unvalidated-candidate-not-accepted')
+    token='INSTALL '+intent['request_id'][:12]
+    tty.write('Authorize refresh + resolve + installation within these limits. Type '+token+': ');tty.flush()
+    if tty.readline().strip()!=token: raise ValueError('installation-not-confirmed')
 
 
 def private_write(directory, name, content):
