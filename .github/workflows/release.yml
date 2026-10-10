@@ -74,7 +74,7 @@ jobs:
           if-no-files-found: warn
   container-arm64:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 20
     continue-on-error: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -84,7 +84,13 @@ jobs:
         run: |
           set -eu
           docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2 --install arm64
-          docker run --rm --platform linux/arm64 -v "$PWD:/work" -w /work ubuntu:26.04 sh tools/container-test.sh
+          docker run --rm --platform linux/arm64 -e RC5_TEST_OUTPUT=/work/layer2-arm64.json -v "$PWD:/work" -w /work ubuntu:26.04 sh tools/container-test.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: layer2-arm64-best-effort
+          path: layer2-arm64.json
+          if-no-files-found: warn
   vm:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -103,13 +109,13 @@ jobs:
           PROFILE: ${{ matrix.profile }}
         run: |
           set -eu
-          mkdir -p .e2e-logs
+          mkdir -p e2e-logs
           if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
-            printf '%s\n' 'SKIPPED: no usable KVM; live_validated=false' | tee .e2e-logs/status.txt
+            printf '%s\n' 'SKIPPED: no usable KVM; live_validated=false' | tee e2e-logs/status.txt
             exit 0
           fi
           if [ -z "$IMAGE_URL" ] || [ -z "$IMAGE_SHA" ]; then
-            printf '%s\n' 'SKIPPED: no owner-verified image/hash supplied; live_validated=false' | tee .e2e-logs/status.txt
+            printf '%s\n' 'SKIPPED: no owner-verified image/hash supplied; live_validated=false' | tee e2e-logs/status.txt
             exit 0
           fi
           case "$IMAGE_URL" in https://cloud-images.ubuntu.com/resolute/*) ;; *) exit 2;; esac
@@ -117,16 +123,16 @@ jobs:
           sudo apt-get -o DPkg::Lock::Timeout=600 update
           sudo apt-get -o DPkg::Lock::Timeout=600 -y install qemu-system-x86 qemu-utils cloud-image-utils
           curl -q --fail --location --proto '=https' --proto-redir '=https' "$IMAGE_URL" -o "$RUNNER_TEMP/ubuntu26.img"
-          export RC5_E2E_IMAGE="$RUNNER_TEMP/ubuntu26.img" RC5_E2E_IMAGE_SHA256="$IMAGE_SHA" RC5_E2E_MATRIX=1 TMPDIR="$PWD/.e2e-logs"
-          sh tools/e2e-vm.sh "$PROFILE" | tee .e2e-logs/status.txt
+          export RC5_E2E_IMAGE="$RUNNER_TEMP/ubuntu26.img" RC5_E2E_IMAGE_SHA256="$IMAGE_SHA" RC5_E2E_MATRIX=1 TMPDIR="$PWD/e2e-logs"
+          sh tools/e2e-vm.sh "$PROFILE" | tee e2e-logs/status.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: layer3-${{ matrix.profile }}
           path: |
-            .e2e-logs/status.txt
-            .e2e-logs/**/serial.log
-            .e2e-logs/**/artifacts/*
+            e2e-logs/status.txt
+            e2e-logs/**/serial.log
+            e2e-logs/**/artifacts/*
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/release-candidate'
     needs: [unit, container-amd64, vm]

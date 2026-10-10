@@ -4,3 +4,6 @@ release/*.tar.gz
 .e2e/
 .e2e-logs/
 .ruff_cache/
+
+e2e-logs/
+layer2-arm64.json
