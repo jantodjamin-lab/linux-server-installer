@@ -4,6 +4,16 @@
     "push": {
       "branches": [
         "release-candidate"
+      ],
+      "paths": [
+        "install.sh",
+        "README.md",
+        "SECURITY.md",
+        "lib/**",
+        "tests/**",
+        "profiles/**",
+        "docs/RC3.md",
+        "release/build.py"
       ]
     },
     "workflow_dispatch": {}
