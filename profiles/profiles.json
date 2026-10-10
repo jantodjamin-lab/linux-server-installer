@@ -1,0 +1,35 @@
+{
+  "APP": {
+    "disk_gib": 10,
+    "packages": [
+      "git",
+      "python3",
+      "dotnet-sdk-10.0",
+      "nodejs",
+      "npm",
+      "nginx",
+      "curl"
+    ]
+  },
+  "APP+DB": {
+    "disk_gib": 30,
+    "packages": [
+      "git",
+      "python3",
+      "dotnet-sdk-10.0",
+      "nodejs",
+      "npm",
+      "nginx",
+      "postgresql-18",
+      "curl"
+    ]
+  },
+  "DB": {
+    "disk_gib": 20,
+    "packages": [
+      "git",
+      "python3",
+      "postgresql-18"
+    ]
+  }
+}

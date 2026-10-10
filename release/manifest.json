@@ -1,0 +1,27 @@
+{
+  "artifact": "universal-linux-installer-1.0.0-rc.2.tar.gz",
+  "live_installation_validated": false,
+  "sources": {
+    "README.md": "43a1076abe72141bb2b6e695b44b078730ad244ae421a23df0970ac2151054dc",
+    "SECURITY.md": "b512ba77f05f72da5e5c2d6515de725c20640d08845b96f36a6b5ff94e24526d",
+    "docs/ACCEPTANCE.md": "10028b22d528262e14bcc74ff8e726e140bcbe55ac0f02adae4cb0b157100307",
+    "docs/GUIDE.md": "99a919a0e29aa347927a10128426bcac3eab4cf33599da793725842bbf53fe67",
+    "docs/SOURCES.md": "587a027cc059f4c7514e5fcabe625d10587bd5e683be896749980cf39e7e63ea",
+    "install.sh": "004aafa3ef42661d2093e41f6a455bb83e28887a81ae60080b613f7e23a9449d",
+    "lib/cli.py": "73bc247fc47533ea059bc758a97f6f7fca8d5824293d7f823ebdca5662cfed57",
+    "lib/core.py": "02ddd7da2812c1ebfc478b9a342ff01505223067a17ac44ffea0a2e62337a2d0",
+    "lib/engine.py": "cf5a1c983156f63a23c10c016f1a9a293025e8673d195acd2d6c1742ece29947",
+    "lib/journal.py": "4da5a35e093973e09cebac9957c76056cdcb0a34162240a87998fa133e9c7c66",
+    "lib/local.py": "4d0ae5836490dd79df09e470f24da4a281e6688a19440e83711275264c4df25c",
+    "lib/workflow.py": "4595cd902189a38c506cae5559eff1324ef5e1cceea2ac068c415a96d9411c4d",
+    "profiles/profiles.json": "920d8f33cdc6f65f7b6c4778cbd30612d8e6a38bd2f603ea73b46cf1191a3894",
+    "release/build.py": "07bdc1dc804894e53fc9340d85b0c2eebd3acf63c3c44f19f323d969833c24f2",
+    "tests/test_core.py": "b70318798bb207e51736f2cd861abc8cf46071621d318f6e19eab21141128e77",
+    "tests/test_engine.py": "efcdf631ada34e6760ed1432f9c66acc276a79ad4b4ebefecde6126a90683397",
+    "tests/test_integration.py": "fe2fd385af74c86c20be53171df9fb880a7bf041a0843e11077b353d3e284245",
+    "tests/test_local.py": "da2ebf0cb968acfaf0b09aa63a976d1981f8964898b92af2cce83914dbabc36a",
+    "tests/test_workflow.py": "320ddd97c7e42379d0a70202f6251e0a3b46179ca5da31ea49a973339eaed0b6"
+  },
+  "status": "NIET LIVE GEVALIDEERD",
+  "version": "1.0.0-rc.2"
+}
