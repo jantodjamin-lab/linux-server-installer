@@ -9,6 +9,10 @@ on:
         description: Publish the tested version as a prerelease (never stable)
         type: boolean
         default: false
+      test_arm64:
+        description: Optional slow best-effort QEMU-user arm64 validation
+        type: boolean
+        default: false
       vm_image_url:
         description: Optional official Ubuntu 26.04 cloud-image URL for local CI KVM test
         type: string
@@ -73,8 +77,9 @@ jobs:
           path: /tmp/rc5-layer2.json
           if-no-files-found: warn
   container-arm64:
+    if: github.event_name == 'workflow_dispatch' && inputs.test_arm64
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 60
     continue-on-error: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -84,7 +89,7 @@ jobs:
         run: |
           set -eu
           docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2 --install arm64
-          docker run --rm --platform linux/arm64 -e RC5_TEST_OUTPUT=/work/layer2-arm64.json -v "$PWD:/work" -w /work ubuntu:26.04 sh tools/container-test.sh
+          timeout --kill-after=30s 55m docker run --rm --platform linux/arm64 -e RC5_TEST_OUTPUT=/work/layer2-arm64.json -v "$PWD:/work" -w /work ubuntu:26.04 sh tools/container-test.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
