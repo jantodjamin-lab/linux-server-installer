@@ -120,6 +120,7 @@ jobs:
           IMAGE_URL: ${{ inputs.vm_image_url }}
           IMAGE_SHA: ${{ inputs.vm_image_sha256 }}
           PROFILE: ${{ matrix.profile }}
+          RC5_E2E_REBOOT: '1'
           VM_SECURITY: 'false'
         run: sh tools/ci-vm.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -130,7 +131,7 @@ jobs:
             e2e-logs/status.txt
             e2e-logs/SHA256SUMS
             e2e-logs/signature-status.txt
-            e2e-logs/**/serial.log
+            e2e-logs/**/serial*.log
             e2e-logs/**/artifacts/*
   vm-security:
     if: github.event_name == 'workflow_dispatch' && inputs.vm_security
@@ -152,6 +153,7 @@ jobs:
           IMAGE_URL: ${{ inputs.vm_image_url }}
           IMAGE_SHA: ${{ inputs.vm_image_sha256 }}
           PROFILE: ${{ matrix.profile }}
+          RC5_E2E_REBOOT: '1'
           VM_SECURITY: 'false'
           RC5_E2E_SCENARIO: ${{ matrix.scenario }}
         run: sh tools/ci-vm.sh
@@ -163,7 +165,7 @@ jobs:
             e2e-logs/status.txt
             e2e-logs/SHA256SUMS
             e2e-logs/signature-status.txt
-            e2e-logs/**/serial.log
+            e2e-logs/**/serial*.log
             e2e-logs/**/artifacts/*
   vm-fault-matrix:
     if: github.event_name == 'workflow_dispatch' && inputs.vm_faults
@@ -203,6 +205,7 @@ jobs:
           IMAGE_URL: ${{ inputs.vm_image_url }}
           IMAGE_SHA: ${{ inputs.vm_image_sha256 }}
           PROFILE: ${{ matrix.profile }}
+          RC5_E2E_REBOOT: '0'
           VM_SECURITY: 'false'
           RC5_E2E_FAULT_EVENT: ${{ matrix.event }}
         run: sh tools/ci-vm.sh
@@ -214,7 +217,7 @@ jobs:
             e2e-logs/status.txt
             e2e-logs/SHA256SUMS
             e2e-logs/signature-status.txt
-            e2e-logs/**/serial.log
+            e2e-logs/**/serial*.log
             e2e-logs/**/artifacts/*
   publish:
     if: always() && github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/release-candidate' && needs.unit.result == 'success' && needs.container-amd64.result == 'success' && needs.vm.result == 'success' && inputs.vm_security && inputs.vm_faults && needs.vm-security.result == 'success' && needs.vm-fault.result == 'success'

@@ -48,3 +48,8 @@ class CIHarnessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn('Refusing: disposable GitHub-hosted Linux runner required', result.stderr)
         self.assertEqual(dict(os.environ), before)
+
+    def test_internal_fault_entry_refuses_development_host(self):
+        result = subprocess.run([sys.executable, '-B', str(BASE/'tools/e2e-guest.py'), '--fault-child', '1', '0'], text=True, capture_output=True, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Refusing: disposable VM marker/root/systemd required', result.stderr)

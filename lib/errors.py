@@ -25,7 +25,7 @@ class PackageError(ValueError):
 
 def redact(value):
     value = str(value)
-    value = re.sub(r'(?i)(https?://)[^\s/]*@', r'\1[REDACTED]@', value)
+    value = re.sub(r'(?i)([a-z][a-z0-9+.-]*://)[^\s/]*@', r'\1[REDACTED]@', value)
     value = re.sub(r'(?im)(authorization|proxy-authorization)\s*:[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*', r'\1: [REDACTED]', value)
     value = re.sub(r'(?i)\b(?:bearer\s+\S+|(?:token|password|secret|api[_-]?key)\s*[=:]\s*[^\s&]+)', '[REDACTED]', value)
     value = re.sub(r'\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|AKIA[A-Z0-9]{16})\b', '[REDACTED]', value)

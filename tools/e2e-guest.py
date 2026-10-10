@@ -122,6 +122,8 @@ def invoke(profile, kill_event=0, review=False, contention=False):
 
 
 def fault_child(event, contention, argv):
+    if os.geteuid()!=0 or not Path('/etc/universal-installer-disposable-e2e').is_file() or not Path('/run/systemd/system').is_dir():
+        raise SystemExit('Refusing: disposable VM marker/root/systemd required')
     # Test-only deterministic fault hook; NEVER shipped as a target CLI flag or
     # activated through a production environment variable.
     original=Journal.event;counter=0;locker=None;started=None;unattended=None;dryrun_output=None
@@ -160,9 +162,52 @@ def fault_child(event, contention, argv):
     sys.argv=['installer',*argv];raise SystemExit(main())
 
 
+def postboot_proof(marker):
+    """Read-only checks after the harness cold-boots the SAME disposable overlay."""
+    pending=json.loads(marker.read_text());result=pending['result']
+    assert result.get('status')=='PASS' and result.get('installation_status')=='PASS','cold-boot marker lacks successful initial validation'
+    boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+    assert boot!=pending['boot_id'],'cold-boot fixture reused the same kernel boot'
+    from swap import active_swap
+    current=active_swap(checked)
+    assert sum(current.values())>=4*2**30,'persistent swap absent after cold boot'
+    fstab=Path('/etc/fstab').read_text()
+    if result['swap_initial_gib']:
+        assert '/e2e-existing-swap' in current,'fixture swap did not survive cold boot'
+        assert '/e2e-existing-swap none swap sw 0 0' in fstab,'fixture fstab entry changed'
+    if result['swap_initial_gib']>=4:
+        assert not Path('/var/lib/universal-linux-installer/swap/swapfile').exists()
+    assert not Path('/usr/sbin/policy-rc.d').exists()
+    profile=result['profile']
+    if profile!='DB':
+        checked(['/usr/sbin/nginx','-t'])
+        assert 'Installer ready' in checked(['/usr/bin/curl','--fail','--silent','--retry','10','--retry-delay','1','--retry-connrefused','--max-time','5','http://127.0.0.1:8080/'])
+    if profile!='APP':
+        for attempt in range(30):
+            if subprocess.run(['/usr/bin/pg_isready','-h','127.0.0.1'],capture_output=True,check=False).returncode==0:break
+            time.sleep(1)
+        else:raise AssertionError('PostgreSQL not ready after cold boot')
+        policy=checked(['/usr/sbin/runuser','-u','postgres','--','/usr/bin/psql','-X','-A','-t','-c',"SELECT current_setting('password_encryption'),current_setting('listen_addresses')"])
+        assert policy.strip()=='scram-sha-256|localhost'
+    sockets=checked(['/usr/bin/ss','-H','-ltn'])
+    external={line.split()[3] for line in sockets.splitlines() if not line.split()[3].startswith(('127.','[::1]:','::1:'))}
+    assert external==set(pending['external_sockets']),'new listener after cold boot'
+    for line in sockets.splitlines():
+        address=line.split()[3]
+        if address.rsplit(':',1)[-1] in ('8080','5432'):
+            assert address.startswith(('127.0.0.1:','[::1]:','::1:'))
+    result.update({'status':'PASS','coldboot':True,'boot_id_before':pending['boot_id'],'boot_id_after':boot,'postboot_swap_bytes':sum(current.values())})
+    Path('/var/lib/universal-linux-installer/e2e-result.json').write_text(json.dumps(result,indent=2)+'\n')
+    marker.unlink()
+    print(json.dumps(result),flush=True)
+
+
 def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False, low_memory=False):
     if os.geteuid()!=0 or not Path('/etc/universal-installer-disposable-e2e').is_file() or not Path('/run/systemd/system').is_dir():
         raise SystemExit('Refusing: disposable VM marker/root/systemd required')
+    reboot_marker=Path('/var/lib/universal-linux-installer/e2e-reboot-pending.json')
+    if reboot_marker.is_file():
+        postboot_proof(reboot_marker);return
     identity=platform.freedesktop_os_release()
     assert identity.get('ID')=='ubuntu' and identity.get('VERSION_ID')=='26.04',identity
     before_sockets=checked(['/usr/bin/ss','-H','-ltn'])
@@ -201,8 +246,14 @@ def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False, low_me
         assert next(c for c in admission['checks'] if c['id']=='ram_mib')['status']=='WARN'
     if swap_gib:
         path='/e2e-existing-swap'
-        checked(['/usr/bin/dd','if=/dev/zero','of='+path,'bs=1M','count='+str(swap_gib*1024+1),'status=none'])
+        checked(['/usr/bin/dd','if=/dev/zero','of='+path,'bs=1M','count='+str(swap_gib*1024),'status=none'])
+        # One dense extra system page compensates the mkswap header exactly.
+        with open(path,'ab') as stream:stream.write(bytes(os.sysconf('SC_PAGE_SIZE')))
         os.chmod(path,0o600);checked(['/usr/sbin/mkswap',path]);checked(['/usr/sbin/swapon',path])
+        # Fixture-owned existing swap: persistence is established BEFORE apply.
+        with open('/etc/fstab','a') as stream:stream.write('\n/e2e-existing-swap none swap sw 0 0\n')
+    from swap import active_swap
+    swap_before_apply=sum(active_swap(checked).values())
     try:
         first=invoke(profile,fault,contention=contention)
         if fault:
@@ -221,7 +272,7 @@ def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False, low_me
             first=second
         assert first.returncode==0,first.stdout+first.stderr
         assert json.loads(first.stdout)['status']=='PASS',first.stdout
-        # Capture ONLY first-run events; repeated apply adds another COMPLETE.
+        # Bind the fault matrix to first-run events before repeat validation.
         events=sum(len(json.loads(p.read_text())['state']['events']) for p in Path('/var/lib/universal-linux-installer').rglob('journal.json'))
         repeated=invoke(profile)
         assert repeated.returncode==0,repeated.stdout+repeated.stderr
@@ -250,8 +301,13 @@ def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False, low_me
         assert total>=4*2**30
         if swap_gib:assert '/e2e-existing-swap' in active_swap(checked)
         if swap_gib>=4:assert not Path('/var/lib/universal-linux-installer/swap/swapfile').exists()
-        result={'journal_events':events,'layer':3,'profile':profile,'status':sudo_result['status'],'installation_status':'PASS','swap_initial_gib':swap_gib,'fault_event':fault,
+        result={'journal_events':events,'layer':3,'profile':profile,'status':sudo_result['status'],'installation_status':'PASS','swap_initial_gib':swap_gib,'swap_before_apply_bytes':swap_before_apply,'fault_event':fault,
                 'contention':contention,'contention_fixture':'injected-real-frontend-lock+actual-unattended-dry-run' if contention else None,'live_validated':False,'owner_acceptance_required':True,'mirror_fixture':'owner-supplied-fields-not-captured-file','development':profile!='DB','sudo':sudo_result,'os_release':identity,'ram_mib':initial['ram_mib'],'low_memory':low_memory}
+        result['coldboot']=False
+        if os.environ.get('RC5_E2E_REBOOT')=='1' and result['status']=='PASS' and not fault:
+            pending={'result':result.copy(),'boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),'external_sockets':sorted(external(before_sockets))}
+            reboot_marker.write_text(json.dumps(pending,sort_keys=True)+'\n');reboot_marker.chmod(0o600)
+            result['status']='REBOOT_REQUIRED'
         Path('/var/lib/universal-linux-installer/e2e-result.json').write_text(json.dumps(result,indent=2)+'\n')
         print(json.dumps(result),flush=True)
     finally:

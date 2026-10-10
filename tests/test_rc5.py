@@ -70,6 +70,12 @@ class RC5RecoveryTests(unittest.TestCase):
         self.assertIn('[REDACTED]',value)
         for private in ('user:secret','Bearer abc','token=xyz','ghp_'):self.assertNotIn(private,value)
 
+    def test_proxy_url_credentials_all_schemes_redacted(self):
+        for scheme in ('http','https','socks5','socks5h'):
+            value=redact(scheme+'://operator:proxy-password@proxy.example:1080')
+            self.assertNotIn('operator',value);self.assertNotIn('proxy-password',value)
+            self.assertIn('[REDACTED]@proxy.example',value)
+
     def test_cli_tail_stderr_only(self):
         error=WorkflowError({'step':'packages','code':'command-failed','command':['apt-get','install'],'exit_code':100})
         with tempfile.TemporaryDirectory() as tmp:

@@ -38,12 +38,12 @@ for i,scenario in enumerate(scenarios):
     (case/'memory').write_text(str(scenario['memory'])+'\n')
     extra=(' --contention' if scenario['contention'] else '')+(' --minimum-vm' if scenario['memory']<1024 else '')
     if scenario['memory']==896:extra+=' --low-memory'
-    command='python3 -B /opt/rc5-test/tools/e2e-guest.py --profile '+profile+' --swap-gib '+str(scenario['swap'])+' --fault-event '+str(scenario['fault'])+extra
+    command=('RC5_E2E_REBOOT=1 ' if os.environ.get('RC5_E2E_REBOOT')=='1' and not scenario['fault'] else '')+'python3 -B /opt/rc5-test/tools/e2e-guest.py --profile '+profile+' --swap-gib '+str(scenario['swap'])+' --fault-event '+str(scenario['fault'])+extra
     script='''#!/bin/sh
 set +e
 mkdir -p /e2e-artifacts
 mount -t 9p -o trans=virtio,version=9p2000.L rc5logs /e2e-artifacts
-COMMAND > /e2e-artifacts/guest.log 2>&1
+COMMAND >> /e2e-artifacts/guest.log 2>&1
 rc=$?
 python3 -B /opt/rc5-test/tools/e2e-guest.py --collect-fixture-evidence
 if [ "$rc" -eq 0 ]; then

@@ -25,12 +25,20 @@ run_cases() {
 for case_dir in "$@"; do
   qemu-img create -f qcow2 -F qcow2 -b "$RC5_E2E_IMAGE" "$case_dir/disk.qcow2" 110G
   memory=$(cat "$case_dir/memory")
-  timeout "${RC5_E2E_TIMEOUT:-150m}" qemu-system-x86_64 $qemu_accel -smp 1 -m "$memory" \
+  for boot in 1 2; do
+    serial=serial.log
+    [ "$boot" = 1 ] || serial=serial-reboot.log
+    timeout "${RC5_E2E_TIMEOUT:-150m}" qemu-system-x86_64 $qemu_accel -smp 1 -m "$memory" \
     -drive "file=$case_dir/disk.qcow2,format=qcow2,if=virtio" \
     -drive "file=$case_dir/seed.img,format=raw,if=virtio,readonly=on" \
     -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
     -virtfs "local,path=$case_dir/artifacts,mount_tag=rc5logs,security_model=mapped-xattr" \
-    -nographic -no-reboot >"$case_dir/serial.log" 2>&1
+    -nographic -no-reboot >"$case_dir/$serial" 2>&1
+    [ -f "$case_dir/artifacts/result.json" ] || { echo "FAIL layer 3: no result; inspect $case_dir" >&2; exit 1; }
+    status=$(python3 -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$case_dir/artifacts/result.json")
+    if [ "$status" != REBOOT_REQUIRED ]; then break; fi
+    [ "$boot" = 1 ] && [ "${RC5_E2E_REBOOT:-0}" = 1 ] || { echo 'FAIL invalid reboot proof state' >&2; exit 1; }
+  done
   [ -f "$case_dir/artifacts/result.json" ] || { echo "FAIL layer 3: no result; inspect $case_dir" >&2; exit 1; }
   python3 -B -c 'import json,sys; assert json.load(open(sys.argv[1]))["status"] == "PASS"' "$case_dir/artifacts/result.json"
 done

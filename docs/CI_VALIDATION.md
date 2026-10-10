@@ -58,3 +58,19 @@ A successful isolated run does not authorize installation on real target. The re
 continues to report `live_validated=false` until separate owner acceptance. Scripts
 alone provide no VM test result; reports must link the actual CI run/artifacts and
 identify every skipped, failed or completed scenario.
+
+## Cold-boot persistence
+
+Smoke and security CI jobs set `RC5_E2E_REBOOT=1`. After successful apply and
+repeat validation, the test guest writes a private pending-proof marker and
+powers off. The local harness starts the same disposable overlay a second time,
+never a replacement image. The enabled fixture service recognizes the marker
+and performs read-only checks: a different kernel boot ID, active swap >=4 GiB,
+existing fixture swap/fstab preservation, managed services on loopback and no
+remaining package-start guard. Only then is `coldboot=true` recorded.
+
+Existing 2/4+ GiB swap is created and added to fstab by fixture setup before the
+installer starts; the installer does not take ownership of it. Minimum-resource
+refusals do not reboot. Fault jobs omit cold-boot proof to keep the exhaustive
+interruption matrix bounded. This is exclusively a test-harness restart, never
+an installer-triggered reboot or permission to restart a real target.
