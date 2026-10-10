@@ -13,12 +13,20 @@ on:
         description: Optional slow best-effort QEMU-user arm64 validation
         type: boolean
         default: false
+      vm_security:
+        description: Bounded VM scenarios; swap 0/2/4+ GiB, minimum-memory and APT-lock contention
+        type: boolean
+        default: false
+      vm_matrix:
+        description: Full VM swap, minimum-memory, lock contention and every journal-event fault matrix
+        type: boolean
+        default: false
       vm_image_url:
-        description: Optional official Ubuntu 26.04 cloud-image URL for local CI KVM test
+        description: Official Ubuntu 26.04 cloud-image override; empty uses signed Canonical release
         type: string
         default: ''
       vm_image_sha256:
-        description: Independently verified image SHA256; empty means layer 3 skipped
+        description: Optional expected image SHA256; signed Canonical sums always checked
         type: string
         default: ''
 permissions:
@@ -107,35 +115,58 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Optional local KVM acceptance; record explicit skip
+      - name: Disposable local systemd VM acceptance (KVM or TCG)
         env:
           IMAGE_URL: ${{ inputs.vm_image_url }}
           IMAGE_SHA: ${{ inputs.vm_image_sha256 }}
           PROFILE: ${{ matrix.profile }}
+          VM_MATRIX: ${{ inputs.vm_matrix }}
+          VM_SECURITY: ${{ inputs.vm_security }}
         run: |
           set -eu
           mkdir -p e2e-logs
-          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
-            printf '%s\n' 'SKIPPED: no usable KVM; live_validated=false' | tee e2e-logs/status.txt
-            exit 0
-          fi
-          if [ -z "$IMAGE_URL" ] || [ -z "$IMAGE_SHA" ]; then
-            printf '%s\n' 'SKIPPED: no owner-verified image/hash supplied; live_validated=false' | tee e2e-logs/status.txt
-            exit 0
-          fi
-          case "$IMAGE_URL" in https://cloud-images.ubuntu.com/resolute/*) ;; *) exit 2;; esac
-          # Packages below are CI-runner test prerequisites, never target-host operations.
+          IMAGE_URL=${IMAGE_URL:-https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-amd64.img}
+          case "$IMAGE_URL" in https://cloud-images.ubuntu.com/releases/resolute/*/ubuntu-26.04-server-cloudimg-amd64.img|https://cloud-images.ubuntu.com/resolute/*/resolute-server-cloudimg-amd64.img) ;; *) exit 2;; esac
+          # Only disposable CI-runner prerequisites; no APP-O or real target changes.
           sudo apt-get -o DPkg::Lock::Timeout=600 update
-          sudo apt-get -o DPkg::Lock::Timeout=600 -y install qemu-system-x86 qemu-utils cloud-image-utils
-          curl -q --fail --location --proto '=https' --proto-redir '=https' "$IMAGE_URL" -o "$RUNNER_TEMP/ubuntu26.img"
-          export RC5_E2E_IMAGE="$RUNNER_TEMP/ubuntu26.img" RC5_E2E_IMAGE_SHA256="$IMAGE_SHA" RC5_E2E_MATRIX=1 TMPDIR="$PWD/e2e-logs"
-          sh tools/e2e-vm.sh "$PROFILE" | tee e2e-logs/status.txt
+          sudo apt-get -o DPkg::Lock::Timeout=600 -y install qemu-system-x86 qemu-utils cloud-image-utils gpg gpgv
+          image_dir="$RUNNER_TEMP/verified-image"
+          mkdir -m 700 "$image_dir" "$image_dir/gnupg"
+          image_name=${IMAGE_URL##*/}
+          image_base=${IMAGE_URL%/*}
+          for name in SHA256SUMS SHA256SUMS.gpg; do
+            curl -q --fail --location --proto '=https' --proto-redir '=https' "$image_base/$name" -o "$image_dir/$name"
+          done
+          # Fingerprint pinned from Canonical public-image verification documentation.
+          cloud_key=D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81
+          curl -q --fail --location --proto '=https' --proto-redir '=https' "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x$cloud_key" -o "$image_dir/key.asc"
+          gpg --batch --homedir "$image_dir/gnupg" --import "$image_dir/key.asc"
+          actual_key=$(gpg --batch --homedir "$image_dir/gnupg" --with-colons --fingerprint "$cloud_key" | awk -F: '$1=="fpr" { print $10; exit }')
+          [ "$actual_key" = "$cloud_key" ]
+          gpg --batch --homedir "$image_dir/gnupg" --export "$cloud_key" > "$image_dir/keyring.gpg"
+          gpgv --homedir "$image_dir/gnupg" --keyring "$image_dir/keyring.gpg" --status-fd 1 "$image_dir/SHA256SUMS.gpg" "$image_dir/SHA256SUMS" > "$image_dir/signature-status.txt"
+          grep -Eq "^\[GNUPG:\] VALIDSIG $cloud_key " "$image_dir/signature-status.txt"
+          verified_sha=$(awk -v file="*$image_name" '$2==file { print $1 }' "$image_dir/SHA256SUMS")
+          [ "${#verified_sha}" -eq 64 ]
+          [ -z "$IMAGE_SHA" ] || [ "$IMAGE_SHA" = "$verified_sha" ]
+          curl -q --fail --location --proto '=https' --proto-redir '=https' "$IMAGE_URL" -o "$image_dir/$image_name"
+          printf '%s  %s\n' "$verified_sha" "$image_dir/$image_name" | sha256sum -c -
+          cp "$image_dir/SHA256SUMS" "$image_dir/signature-status.txt" e2e-logs/
+          export RC5_E2E_IMAGE="$image_dir/$image_name" RC5_E2E_IMAGE_SHA256="$verified_sha" TMPDIR="$PWD/e2e-logs"
+          if [ "$VM_MATRIX" = true ]; then export RC5_E2E_MATRIX=1; fi
+          if [ "$VM_SECURITY" = true ]; then export RC5_E2E_SECURITY=1; fi
+          # Smoke all three profiles with real systemd, TransIP mirror and APP development tools.
+          # Full swap/fault matrix remains an explicit separate local harness option.
+          sh tools/e2e-vm.sh "$PROFILE" > e2e-logs/status.txt 2>&1
+          cat e2e-logs/status.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: layer3-${{ matrix.profile }}
           path: |
             e2e-logs/status.txt
+            e2e-logs/SHA256SUMS
+            e2e-logs/signature-status.txt
             e2e-logs/**/serial.log
             e2e-logs/**/artifacts/*
   publish:

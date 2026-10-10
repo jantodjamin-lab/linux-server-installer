@@ -1,12 +1,16 @@
 #!/bin/sh
-# Local disposable KVM only. Never SSH/remote; never installs host prerequisites.
+# Local disposable QEMU only. Never SSH/remote; never installs host prerequisites.
 set -eu
 profile=${1:-APP}
 case "$profile" in APP|DB|APP+DB) ;; *) echo 'Invalid profile' >&2; exit 2;; esac
 for binary in qemu-system-x86_64 qemu-img cloud-localds python3 tar timeout sha256sum; do
   command -v "$binary" >/dev/null || { echo "SKIP layer 3: missing $binary" >&2; exit 77; }
 done
-[ -r /dev/kvm ] && [ -w /dev/kvm ] || { echo 'SKIP layer 3: usable KVM absent' >&2; exit 77; }
+accelerator=${RC5_E2E_ACCELERATOR:-auto}
+case "$accelerator" in auto) if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then accelerator=kvm; else accelerator=tcg; fi;; kvm|tcg) ;; *) exit 2;; esac
+if [ "$accelerator" = kvm ]; then qemu_accel="-enable-kvm -cpu host"; else qemu_accel="-accel tcg,thread=multi -cpu max"; fi
+export RC5_E2E_ACCELERATOR=$accelerator
+printf 'Layer 3 accelerator: %s (disposable local VM)\n' "$accelerator"
 : "${RC5_E2E_IMAGE:?Set path to a locally verified Ubuntu 26.04 amd64 cloud image}"
 : "${RC5_E2E_IMAGE_SHA256:?Set independently trusted cloud-image SHA256}"
 RC5_E2E_IMAGE=$(python3 -B -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve(strict=True))' "$RC5_E2E_IMAGE")
@@ -21,7 +25,7 @@ run_cases() {
 for case_dir in "$@"; do
   qemu-img create -f qcow2 -F qcow2 -b "$RC5_E2E_IMAGE" "$case_dir/disk.qcow2" 110G
   memory=$(cat "$case_dir/memory")
-  timeout 90m qemu-system-x86_64 -enable-kvm -cpu host -smp 1 -m "$memory" \
+  timeout "${RC5_E2E_TIMEOUT:-150m}" qemu-system-x86_64 $qemu_accel -smp 1 -m "$memory" \
     -drive "file=$case_dir/disk.qcow2,format=qcow2,if=virtio" \
     -drive "file=$case_dir/seed.img,format=raw,if=virtio,readonly=on" \
     -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
@@ -38,4 +42,4 @@ if [ "${RC5_E2E_MATRIX:-0}" = 1 ]; then
   python3 -B "$base/tools/e2e-seed.py"
   run_cases "$work"/case-1*
 fi
-printf 'PASS local VM scenarios; evidence: %s; owner acceptance still required\n' "$work"
+printf 'PASS local disposable VM scenarios; evidence: %s; owner acceptance still required\n' "$work"

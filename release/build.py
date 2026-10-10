@@ -57,7 +57,7 @@ def build():
     (OUT/'manifest.json').write_text(json.dumps(manifest, sort_keys=True, indent=2)+'\n')
     archive_sha = hashlib.sha256(artifact.read_bytes()).hexdigest()
     url = 'https://github.com/jantodjamin-lab/linux-server-installer/releases/download/v'+VERSION+'/'+artifact.name
-    audit = ("(set -eu; audit_dir=$(mktemp -d); cd \"$audit_dir\"; curl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --max-time 60 '"+url+"' --output '"+artifact.name+"'; printf '%s  %s\\n' '"+archive_sha+"' '"+artifact.name+"' | sha256sum -c -; tar -xzf '"+artifact.name+"'; sh 'universal-linux-installer-"+VERSION+"/install.sh' --profile APP+DB --audit)\n")
+    audit = ("(set -eu; audit_dir=$(mktemp -d); cd \"$audit_dir\"; curl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --max-time 60 '"+url+"' --output '"+artifact.name+"'; printf '%s  %s\\n' '"+archive_sha+"' '"+artifact.name+"' | sha256sum -c -; tar -xzf '"+artifact.name+"'; sh 'universal-linux-installer-"+VERSION+"/install.sh' --profile APP+DB --audit --allow-mirror https://mirror.transip.net/ubuntu/ubuntu/)\n")
     (OUT/'AUDIT.txt').write_text(audit)
     checks = [artifact, OUT/'manifest.json', OUT/'build.py', OUT/'AUDIT.txt']
     (OUT/'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in checks))

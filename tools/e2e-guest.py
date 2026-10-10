@@ -3,6 +3,13 @@ import argparse
 import hashlib
 import json
 import os
+import errno
+import fcntl
+import pty
+import platform
+import secrets
+import select
+import termios
 from pathlib import Path
 import signal
 import subprocess
@@ -20,9 +27,58 @@ from journal import Journal
 def checked(argv):return subprocess.run(argv,check=True,text=True,capture_output=True).stdout
 
 
+def sudo_evidence(profile):
+    """Actual VM-only sudo auth; deliberately invalid approval prevents effects."""
+    account='e2e-password'
+    checked(['/usr/sbin/useradd','--create-home','--shell','/bin/sh',account])
+    secret=secrets.token_urlsafe(32)
+    # Only OS fixture authentication receives the password, never the installer.
+    subprocess.run(['/usr/sbin/chpasswd'],input=account+':'+secret+'\n',text=True,check=True,capture_output=True)
+    policy=Path('/etc/sudoers.d/rc5-e2e-password')
+    policy.write_text(account+' ALL=(root) ALL\n');policy.chmod(0o440)
+    checked(['/usr/sbin/visudo','-cf',str(policy)])
+    evidence={}
+    for user,password in [('operator',None),(account,secret)]:
+        master,slave=pty.openpty()
+        output=bytearray();sent=False
+        def session():
+            os.setsid();fcntl.ioctl(0,termios.TIOCSCTTY,0)
+        argv=['/usr/sbin/runuser','-u',user,'--','sh',str(BASE/'install.sh'),
+              '--profile',profile,'--apply','--sudo','--system-updates',
+              '--snapshot-confirmed','--allow-unvalidated','--allow-mirror',
+              'https://mirror.transip.net/ubuntu/ubuntu/','--approval','INSTALL:'+'0'*64,'--json']
+        if profile!='DB':argv.append('--development')
+        process=subprocess.Popen(argv,stdin=slave,stdout=slave,stderr=slave,preexec_fn=session,close_fds=True)
+        os.close(slave)
+        deadline=time.monotonic()+90
+        try:
+            while True:
+                if time.monotonic()>deadline:raise AssertionError('sudo fixture timeout')
+                if select.select([master],[],[],0.1)[0]:
+                    try:chunk=os.read(master,4096)
+                    except OSError as error:
+                        if error.errno==errno.EIO:break
+                        raise
+                    if not chunk:break
+                    output.extend(chunk)
+                    if password and not sent and b'[sudo] password for ' in output and output.rstrip().endswith(b':'):
+                        os.write(master,password.encode()+b'\n');sent=True
+                elif process.poll() is not None:break
+            status=process.wait(timeout=10)
+            assert secret.encode() not in output,'sudo fixture secret echoed'
+            assert status==1 and b'intent-approval-mismatch' in output,'sudo did not reach root approval refusal'
+            if password:assert sent,'password authentication was not requested'
+            else:assert b'[sudo] password for ' not in output,'NOPASSWD requested a password'
+            evidence['password' if password else 'nopasswd']='PASS-authenticated-approval-refused-no-effects'
+        finally:
+            if process.poll() is None:process.kill();process.wait()
+            os.close(master)
+    return evidence
+
+
 def args_for(profile):
-    return argparse.Namespace(profile=profile,apply=True,resolve=False,development=False,
-            system_updates=True,allow_mirror=[],allow_proxy_env=False,no_wait_cloud_init=False,
+    return argparse.Namespace(profile=profile,apply=True,resolve=False,development=profile!='DB',
+            system_updates=True,allow_mirror=['https://mirror.transip.net/ubuntu/ubuntu/'],allow_proxy_env=False,no_wait_cloud_init=False,
             max_new_packages=1000,max_updates=100,npm_bundle=None,state_dir='/var/lib/universal-linux-installer/checkpoints')
 
 
@@ -31,6 +87,8 @@ def invoke(profile, kill_event=0, review=False, contention=False):
     intent=request(args_for(profile),data)
     argv=['sh',str(BASE/'install.sh'),'--profile',profile,'--apply','--system-updates',
           '--snapshot-confirmed','--allow-unvalidated','--approval','INSTALL:'+intent['request_id'],'--show-diagnostics','--json']
+    argv += ['--allow-mirror','https://mirror.transip.net/ubuntu/ubuntu/']
+    if profile!='DB':argv.append('--development')
     if review:argv.append('--recovery-reviewed')
     if kill_event or contention:
         argv=[sys.executable,'-B',str(Path(__file__).resolve()),'--fault-child',str(kill_event),str(int(contention)),*argv[2:]]
@@ -59,10 +117,27 @@ def fault_child(event, contention, argv):
 def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False):
     if os.geteuid()!=0 or not Path('/etc/universal-installer-disposable-e2e').is_file() or not Path('/run/systemd/system').is_dir():
         raise SystemExit('Refusing: disposable VM marker/root/systemd required')
+    identity=platform.freedesktop_os_release()
+    assert identity.get('ID')=='ubuntu' and identity.get('VERSION_ID')=='26.04',identity
     before_sockets=checked(['/usr/bin/ss','-H','-ltn'])
     def external(raw):
         return {line.split()[3] for line in raw.splitlines() if not line.split()[3].startswith(('127.','[::1]:','::1:'))}
-    initial=inventory()
+    def audit_snapshot():
+        result={}
+        for directory in ('/var/lib/apt','/etc/apt','/var/lib/universal-linux-installer'):
+            root=Path(directory)
+            for path in [root,*root.rglob('*')] if root.exists() else []:
+                st=path.lstat();result[str(path)]=(st.st_ino,st.st_mtime_ns,st.st_size)
+        return result
+    unchanged=audit_snapshot()
+    denied=subprocess.run(['sh',str(BASE/'install.sh'),'--profile',profile,'--audit','--json'],capture_output=True,text=True)
+    assert denied.returncode==1 and 'unapproved-apt-source' in denied.stdout,denied.stdout+denied.stderr
+    approved=subprocess.run(['sh',str(BASE/'install.sh'),'--profile',profile,'--audit','--allow-mirror','https://mirror.transip.net/ubuntu/ubuntu/','--json'],capture_output=True,text=True)
+    assert approved.returncode==0 or (minimum_vm and json.loads(approved.stdout)['failures']==['ram_mib']),approved.stdout+approved.stderr
+    assert audit_snapshot()==unchanged,'audit changed target metadata'
+    sudo_result=({'status':'SKIPPED-resource-admission-refusal'} if minimum_vm and 'ram_mib' in json.loads(approved.stdout)['failures'] else sudo_evidence(profile))
+    assert audit_snapshot()==unchanged,'sudo approval refusal changed target metadata'
+    initial=inventory(allow_mirrors=['https://mirror.transip.net/ubuntu/ubuntu/'])
     admission=plan(profile,initial)
     if minimum_vm:
         ram=initial['ram_mib']
@@ -70,16 +145,16 @@ def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False):
             # QEMU -m843 includes reserved/kernel memory; physical MemTotal may
             # be below admission. Prove refusal, never falsify the observation.
             assert 'ram_mib' in admission['failures']
-            audit=subprocess.run(['sh',str(BASE/'install.sh'),'--profile',profile,'--audit','--json'],capture_output=True,text=True)
+            audit=subprocess.run(['sh',str(BASE/'install.sh'),'--profile',profile,'--audit','--allow-mirror','https://mirror.transip.net/ubuntu/ubuntu/','--json'],capture_output=True,text=True)
             assert audit.returncode==1 and 'ram_mib' in json.loads(audit.stdout)['failures']
             directory=Path('/var/lib/universal-linux-installer');directory.mkdir(mode=0o700)
-            result={'layer':3,'status':'PASS','scenario':'minimum-VM-physical-RAM-refusal','ram_mib':ram,'live_validated':False,'apply_executed':False}
+            result={'layer':3,'status':'PASS','scenario':'minimum-VM-physical-RAM-refusal','ram_mib':ram,'live_validated':False,'apply_executed':False,'os_release':identity,'sudo':sudo_result}
             (directory/'e2e-result.json').write_text(json.dumps(result,indent=2)+'\n')
             return
         assert next(c for c in admission['checks'] if c['id']=='ram_mib')['status']=='WARN'
     if swap_gib:
         path='/e2e-existing-swap'
-        checked(['/usr/bin/dd','if=/dev/zero','of='+path,'bs=1M','count='+str(swap_gib*1024),'status=none'])
+        checked(['/usr/bin/dd','if=/dev/zero','of='+path,'bs=1M','count='+str(swap_gib*1024+1),'status=none'])
         os.chmod(path,0o600);checked(['/usr/sbin/mkswap',path]);checked(['/usr/sbin/swapon',path])
     try:
         first=invoke(profile,fault,contention=contention)
@@ -116,6 +191,7 @@ def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False):
             assert checked(['/usr/bin/npm','--version']).startswith('9.')
             assert checked(['/usr/bin/dotnet','--list-sdks']).startswith('10.')
             assert '20.3.39' in checked(['/opt/universal-linux-installer/angular/node_modules/.bin/ng','version'])
+            assert '0.128.0' in checked(['/opt/universal-linux-installer/codex/node_modules/.bin/codex','--version'])
         if profile!='APP':
             checked(['/usr/bin/pg_isready','-h','127.0.0.1'])
             policy=checked(['/usr/sbin/runuser','-u','postgres','--','/usr/bin/psql','-X','-A','-t','-c',"SELECT current_setting('password_encryption'),current_setting('listen_addresses')"])
@@ -127,7 +203,7 @@ def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False):
         if swap_gib>=4:assert not Path('/var/lib/universal-linux-installer/swap/swapfile').exists()
         events=sum(len(json.loads(p.read_text())['state']['events']) for p in Path('/var/lib/universal-linux-installer').rglob('journal.json'))
         result={'journal_events':events,'layer':3,'profile':profile,'status':'PASS','swap_initial_gib':swap_gib,'fault_event':fault,
-                'contention':contention,'live_validated':False,'owner_acceptance_required':True}
+                'contention':contention,'live_validated':False,'owner_acceptance_required':True,'mirror_fixture':'owner-supplied-fields-not-captured-file','development':profile!='DB','sudo':sudo_result,'os_release':identity}
         Path('/var/lib/universal-linux-installer/e2e-result.json').write_text(json.dumps(result,indent=2)+'\n')
         print(json.dumps(result),flush=True)
     finally:

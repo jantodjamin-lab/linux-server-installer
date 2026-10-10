@@ -98,7 +98,7 @@ def check_npm_lock(directory, name, pin):
 
 class LocalRunner:
     def __init__(self, workflow, approval, snapshot_confirmed=False, allow_unvalidated=False,
-                 root='/', transport=command, bundle=None):
+                 root='/', transport=command, bundle=None, completed_checkpoints=None):
         if approval != 'INSTALL:'+workflow['plan_id'] or snapshot_confirmed is not True or allow_unvalidated is not True:
             raise ValueError('explicit-plan-snapshot-and-candidate-approval-required')
         body = {k: v for k, v in workflow.items() if k != 'plan_id'}
@@ -109,7 +109,10 @@ class LocalRunner:
         self.marker = self.root/'var/lib/universal-linux-installer/ownership.json'
         if self.root == Path('/'):
             from workflow import validate_plan_age
-            validate_plan_age(workflow)
+            try:validate_plan_age(workflow)
+            except ValueError as error:
+                from apply import completed_checkpoint
+                if str(error)!='plan-expired' or completed_checkpoints is None or not completed_checkpoint(completed_checkpoints,workflow):raise
             if os.geteuid() != 0: raise ValueError('root-required')
             identity = hashlib.sha256(Path('/etc/machine-id').read_bytes()).hexdigest()
             if workflow['target'] != identity: raise ValueError('target-binding')
@@ -266,6 +269,24 @@ class LocalRunner:
         except RuntimeError:
             return None
 
+    def loopback_listener(self, port):
+        """Every socket at a managed service port must bind a loopback address."""
+        import ipaddress
+        raw=self.call(['/usr/bin/ss','-H','-ltn'])
+        found=False
+        for line in raw.splitlines():
+            fields=line.split()
+            if len(fields)<5:raise ValueError('listener-inventory-format')
+            endpoint=fields[3]
+            host,separator,number=endpoint.rpartition(':')
+            if not separator or not number.isdigit():raise ValueError('listener-inventory-format')
+            if int(number)!=port:continue
+            found=True
+            try:
+                if not ipaddress.ip_address(host.strip('[]')).is_loopback:return False
+            except ValueError:return False
+        return found
+
     def validate(self, step):
         kind = step['kind']
         if kind == 'sources':
@@ -285,11 +306,13 @@ class LocalRunner:
                 return 'Angular CLI: '+step['version'] in self.call([str(base/'node_modules/.bin/ng'), 'version'])
             return self.call([str(base/'node_modules/.bin/codex'), '--version']).strip() == 'codex-cli '+step['version']
         if kind == 'app-config':
+            if not self.loopback_listener(8080):return False
             if (self.root/'etc/nginx/conf.d/universal-installer.conf').read_text() != NGINX: return False
             self.call(['/usr/sbin/nginx', '-t'])
             self.call(['/usr/bin/systemctl', 'is-active', 'nginx'])
             return self.call(['/usr/bin/curl', '--fail', '--silent', '--max-time', '5', 'http://127.0.0.1:8080/']).strip().endswith('Installer ready')
         if kind == 'db-config':
+            if not self.loopback_listener(5432):return False
             base = self.root/'etc/postgresql/18/main'
             if (base/'conf.d/90-universal-installer.conf').read_text() != PGCONF: return False
             # Refuse trust, remote networks and password methods weaker than SCRAM.

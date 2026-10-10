@@ -60,19 +60,21 @@ fstab persistence preserves all existing rows. No swapoff/rollback is used.
    all-profile exact closure and Ubuntu npm9/SRI ci. Capacity/systemd/swap admission
    is excluded explicitly. amd64 required; QEMU arm64 best effort with separate
    status. Output /tmp/rc5-layer2.json and console logs are retained in CI.
-3. Disposable local QEMU/KVM VM with systemd: tools/e2e-vm.sh creates a fresh
+3. Disposable local QEMU VM (KVM or TCG) with systemd: tools/e2e-vm.sh creates a fresh
    writable overlay and cloud-init NoCloud seed; uses serial and a readonly
    installer seed, NEVER SSH or any remote host. Requires preinstalled qemu tools,
-   cloud-localds, KVM, tar, curl and local trusted Ubuntu 26.04 cloud image.
+   cloud-localds, tar, curl and local trusted Ubuntu 26.04 cloud image.
    No host packages are installed by the harness. Cases: profile clean+repeat,
    0/2/4GiB swap, minimum CPU/RAM, dpkg contention, kill-after-journal-event recovery.
    Guest uploads nothing; logs/journals/diagnostics stay in its disk and serial log.
-   Offline export via qemu guest shutdown disk inspection is operator-controlled.
+   A local 9p artifact directory receives guest logs after shutdown.
+   Canonical image SHA256SUMS signatures are pinned and verified by CI.
+   The provider source file reconstructs supplied fields; it is not a captured file.
 
 Use `sh tools/e2e-vm.sh APP` for smoke; `RC5_E2E_MATRIX=1 sh tools/e2e-vm.sh APP`
 for the scenarios, repeated for DB and APP+DB. Set RC5_E2E_IMAGE to a locally
 verified cloud image and RC5_E2E_IMAGE_SHA256 to its trusted SHA256. The harness
-refuses missing tools/KVM/image/hash rather than downloading/executing an unverified
+refuses missing tools/image/hash rather than downloading/executing an unverified
 image. It never claims live_validated; owner acceptance is a separate decision.
 Production/real server installation remains outside scope.
 

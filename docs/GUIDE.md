@@ -99,6 +99,9 @@ clears pending automatically; packages/swap/config/npm/validate require explicit
 the same rule on next invocation. Completed steps revalidate; drift stops.
 
 Re-run the SAME --apply options within 2h to resume/revalidate the SAME saved plan.
+A fully completed, root-owned checkpoint may also be revalidated after expiry.
+Its journal digest, plan binding, ownership and every completed step must match;
+this exception authorizes no new effects. Partial or interrupted plans still expire.
 A successful repeat does not reinstall packages/npm or allocate/edit swap again.
 No automatic reboot: WARN manual-reboot-required requires operator review/reboot
 then resume. The policy-rc.d guard remains after failure; do not remove blindly.
@@ -117,7 +120,7 @@ Layer 2: `docker run --rm -v "$PWD:/work" -w /work ubuntu:26.04 sh tools/contain
 (installs packages ONLY in the disposable container). The script checks real
 signed metadata and resolvers for every profile plus Ubuntu npm9 npm-ci. Container
 resource/systemd admission is synthetic; no service/swap e2e claim follows.
-Layer 3: `sh tools/e2e-vm.sh APP` (local KVM only, prerequisites below).
+Layer 3: `sh tools/e2e-vm.sh APP` (local KVM or QEMU TCG; prerequisites are checked without host installation).
 See docs/ARCHITECTURE.md for scenarios and retained artifacts. Neither unit nor
 container PASS changes NOT LIVE VALIDATED. Owner acceptance remains required.
 

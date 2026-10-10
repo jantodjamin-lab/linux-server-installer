@@ -153,6 +153,28 @@ def authorized_resolution(args, observed, intent, directory, call, root='/'):
         return workflow
 
 
+def completed_checkpoint(directory, workflow):
+    """Read-only expiry exception: every exact-plan step durably completed."""
+    from swap import regular
+    import stat
+    directory=Path(directory)
+    for parent in [directory,*directory.parents]:
+        if parent.is_symlink():return False
+    try:
+        owner=directory.stat()
+        if not stat.S_ISDIR(owner.st_mode) or owner.st_uid!=os.geteuid() or stat.S_IMODE(owner.st_mode)!=0o700:return False
+        path=directory/'journal.json';regular(path,0o600)
+        envelope=json.loads(path.read_text())
+        if set(envelope)!={'state','sha256'} or digest(envelope['state'])!=envelope['sha256']:return False
+        state=envelope['state']
+        return (set(state)=={'schema','binding','pending','done','events'} and state['schema']==2
+                and state['binding']==workflow['plan_id'] and state['pending'] is None
+                and isinstance(state['events'],list) and isinstance(state['done'],list)
+                and len(state['done'])==len(workflow['steps'])
+                and set(state['done'])=={step['id'] for step in workflow['steps']})
+    except (OSError,ValueError,TypeError,KeyError):return False
+
+
 def fresh_target(root, observed):
     marker=Path(root)/'var/lib/universal-linux-installer/ownership.json'
     if marker.exists() or marker.is_symlink():
@@ -197,7 +219,9 @@ def run_apply(args, observed, *, root='/', transport=None):
             from cli import read_json
             from swap import regular
             regular(path,0o600);workflow=read_json(path)
-            validate_plan_age(workflow)
+            try:validate_plan_age(workflow)
+            except ValueError as error:
+                if str(error)!='plan-expired' or not completed_checkpoint(directory/'checkpoints',workflow):raise
             if workflow.get('authorization')!=intent: raise ValueError('saved-plan-options')
             if digest({k:v for k,v in workflow.items() if k!='plan_id'})!=workflow['plan_id']:raise ValueError('saved-plan-integrity')
             with Journal(directory/'preparation',intent['request_id']) as preparation:
@@ -209,7 +233,7 @@ def run_apply(args, observed, *, root='/', transport=None):
         else: workflow=authorized_resolution(args,observed,intent,directory,tolerant,root)
         print(resolution_summary(workflow),file=sys.stderr)
         if args.resolve:return {'status':'WARN','profile':args.profile,'plan_id':workflow['plan_id'],'code':'resolved-review-required','directory':str(directory),'live_validated':False}
-        runner=LocalRunner(workflow,'INSTALL:'+workflow['plan_id'],True,True,root=root,transport=command if transport is None else lambda argv,cwd=None:transport(argv,cwd=cwd),bundle=args.npm_bundle or BASE/'bundle')
+        runner=LocalRunner(workflow,'INSTALL:'+workflow['plan_id'],True,True,root=root,transport=command if transport is None else lambda argv,cwd=None:transport(argv,cwd=cwd),bundle=args.npm_bundle or BASE/'bundle',completed_checkpoints=directory/'checkpoints')
         # Target lock is already held; avoid recursively acquiring it.
         from journal import _run_workflow
         report=_run_workflow(workflow,runner,directory/'checkpoints',args.recovery_reviewed)

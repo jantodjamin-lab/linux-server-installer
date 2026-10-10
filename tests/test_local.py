@@ -58,6 +58,7 @@ class Transport:
             if argv[-1] not in self.versions: raise RuntimeError('missing')
             return self.versions[argv[-1]]
         if executable=='curl': return '<!doctype html><title>Installer ready</title>Installer ready\n'
+        if executable=='ss':return 'LISTEN 0 511 127.0.0.1:8080 0.0.0.0:*\nLISTEN 0 244 [::1]:5432 [::]:*\n'
         if executable=='runuser': return 'localhost|scram-sha-256|180000\n'
         if executable=='dotnet': return '10.0.100 [/usr/share/dotnet/sdk]\n'
         if executable=='node': return 'v22.12.0\n'

@@ -10,7 +10,10 @@
   advisory. No homedir/keybox/trustdb writes; missing gpg gives a clear prerequisite.
 - Interactive apply/resolve paths, 2-hour schema-5 plans, package/update limits,
   opt-in proxy environment, cloud-init waiting and 600s dpkg lock timeout.
-- Container real-tool CI and local systemd/KVM VM harness with explicit status;
+- Completed secure checkpoints revalidate after expiry without new effects; managed
+  service sockets are checked against actual loopback listeners.
+- Exact supplied TransIP deb822 regression checks and real-source resolver CI.
+- Container real-tool CI and local systemd VM harness (KVM or TCG) with explicit status;
   consolidated documentation/release workflow, obsolete engine/tarball removal.
 
 ## 1.0.0-rc.4

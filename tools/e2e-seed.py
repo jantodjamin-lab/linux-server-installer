@@ -9,7 +9,7 @@ import tarfile
 
 base=Path(os.environ['RC5_E2E_BASE']);work=Path(os.environ['RC5_E2E_WORK']);profile=os.environ['RC5_E2E_PROFILE']
 scenarios=[{'swap':0,'memory':4096,'fault':0,'contention':False}]
-if os.environ.get('RC5_E2E_MATRIX')=='1':
+if os.environ.get('RC5_E2E_MATRIX')=='1' or os.environ.get('RC5_E2E_SECURITY')=='1':
     scenarios += [{'swap':s,'memory':4096,'fault':0,'contention':False} for s in (2,4)]
     scenarios += [{'swap':0,'memory':843,'fault':0,'contention':False}, {'swap':0,'memory':4096,'fault':0,'contention':True}]
 if os.environ.get('RC5_E2E_ONLY_FAULTS')=='1':
@@ -42,11 +42,11 @@ systemctl poweroff
 '''.replace('COMMAND',command)
     service='[Unit]\nAfter=cloud-final.service\n[Service]\nType=oneshot\nExecStart=/bin/sh /opt/rc5-e2e.sh\n[Install]\nWantedBy=multi-user.target\n'
     config={'package_update':True,'packages':['python3','gpg','gpgv','util-linux','curl','iproute2'],'users':[{'name':'operator','sudo':'ALL=(ALL) NOPASSWD:ALL','lock_passwd':True}],
-            'write_files':[{'path':'/etc/universal-installer-disposable-e2e','content':'isolated-local-kvm\n'},
+            'write_files':[{'path':'/etc/universal-installer-disposable-e2e','content':'isolated-local-qemu\n'},
              {'path':'/opt/rc5-installer.tar.gz','encoding':'b64','content':base64.b64encode(buffer.getvalue()).decode()},
              {'path':'/opt/rc5-e2e.sh','permissions':'0700','content':script},
              {'path':'/etc/systemd/system/rc5-e2e.service','content':service}],
-            'runcmd':[['mkdir','-p','/opt/rc5-test'],['tar','-xzf','/opt/rc5-installer.tar.gz','-C','/opt/rc5-test'],
+            'runcmd':[['sh','-c',"mkdir -p /etc/apt/sources.list.d; rm -f /etc/apt/sources.list.d/ubuntu.sources; printf '%s\\n' 'Types: deb' 'URIs: https://mirror.transip.net/ubuntu/ubuntu/' 'Suites: resolute resolute-updates resolute-security' 'Components: main universe restricted multiverse' 'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' > /etc/apt/sources.list.d/provider-test.sources"],['apt-get','-o','DPkg::Lock::Timeout=600','update'],['mkdir','-p','/opt/rc5-test'],['tar','-xzf','/opt/rc5-installer.tar.gz','-C','/opt/rc5-test'],
                        ['systemctl','daemon-reload'],['systemctl','enable','rc5-e2e.service'],['systemctl','start','--no-block','rc5-e2e.service']]}
     (case/'user-data').write_text('#cloud-config\n'+json.dumps(config,indent=2)+'\n')
     (case/'meta-data').write_text('instance-id: rc5-disposable-'+str(i)+'\nlocal-hostname: rc5-disposable\n')
