@@ -43,11 +43,11 @@ class Transport:
             name, version = argv[-1].split('=',1)
             return 'Package: '+name+'\nVersion: '+version+'\nFilename: pool/main/fixture.deb\nSHA256: '+'a'*64+'\n'
         if executable == 'apt-get' and 'install' in argv and '-s' in argv:
-            pins = [a.split('=',1) for a in argv if '=' in a and not a.startswith(('APT::','Acquire::','Dpkg::'))]
+            pins = [a.split('=',1) for a in argv if '=' in a and not a.startswith(('APT::','Acquire::','Dpkg::','DPkg::'))]
             return ''.join('Inst '+name+' ('+version+' Ubuntu [amd64])\n' for name,version in pins if self.versions.get(name) != version)
         if executable == 'apt-get' and 'install' in argv and '-s' not in argv:
             for pin in argv:
-                if '=' in pin and not pin.startswith(('APT::','Acquire::','Dpkg::')):
+                if '=' in pin and not pin.startswith(('APT::','Acquire::','Dpkg::','DPkg::')):
                     name,version=pin.split('=',1); self.versions[name]=version
             if 'nginx' in self.versions:
                 path=self.root/'etc/nginx/sites-available/default'; path.parent.mkdir(parents=True,exist_ok=True); path.write_text('package default')

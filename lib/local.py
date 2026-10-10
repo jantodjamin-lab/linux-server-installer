@@ -32,24 +32,32 @@ SERVICE_BLOCK = '#!/bin/sh\n# universal-linux-installer: block package service s
 APT_SECURITY = ['-o', 'APT::Get::AllowUnauthenticated=false', '-o', 'Acquire::AllowInsecureRepositories=false',
                 '-o', 'Acquire::AllowDowngradeToInsecureRepositories=false', '-o', 'APT::Get::allow-Downgrades=false',
                 '-o', 'APT::Update::Error-Mode=any', '-o', 'Acquire::Check-Valid-Until=true', '-o', 'Acquire::Check-Date=true',
-                '-o', 'Acquire::AllowWeakRepositories=false',
+                '-o', 'Acquire::AllowWeakRepositories=false', '-o', 'DPkg::Lock::Timeout=600',
                 '-o', 'Dpkg::Options::=--force-confold']
 
 
-def command(argv, cwd=None):
-    completed = subprocess.run(argv, cwd=cwd, check=False, capture_output=True, text=True,
-                               timeout=1800, stdin=subprocess.DEVNULL,
-                               env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C',
-                                    'HOME': '/root', 'DEBIAN_FRONTEND': 'noninteractive',
-                                    'NEEDRESTART_MODE': 'l', 'DOTNET_CLI_TELEMETRY_OPTOUT': '1',
-                                    'NG_CLI_ANALYTICS': 'false'})
-    if completed.returncode:
-        # No arbitrary stdout/stderr/exception text in persistent reports.
-        raise RuntimeError('local-command-failed')
+def command(argv, cwd=None, allow_proxy_env=False):
+    from errors import CommandError
+    env = {'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C',
+           'HOME': '/root', 'DEBIAN_FRONTEND': 'noninteractive',
+           'NEEDRESTART_MODE': 'l', 'DOTNET_CLI_TELEMETRY_OPTOUT': '1',
+           'NG_CLI_ANALYTICS': 'false', 'NPM_CONFIG_USERCONFIG':'/dev/null',
+           'NPM_CONFIG_GLOBALCONFIG':'/nonexistent/universal-npmrc'}
+    if allow_proxy_env:
+        for key in ('HTTP_PROXY','HTTPS_PROXY','NO_PROXY','http_proxy','https_proxy','no_proxy'):
+            if key in os.environ: env[key] = os.environ[key]
+    try:
+        completed = subprocess.run(argv, cwd=cwd, check=False, capture_output=True, text=True,
+                                   timeout=1800, stdin=subprocess.DEVNULL, env=env)
+    except subprocess.TimeoutExpired as error:
+        tail = error.stderr or ''
+        if isinstance(tail, bytes): tail = tail.decode(errors='replace')
+        raise CommandError(argv, 124, tail) from None
+    if completed.returncode: raise CommandError(argv, completed.returncode, completed.stderr)
     return completed.stdout
 
 
-from sources import validate_sources, approve_uri
+from sources import validate_sources, approve_uri as approve_uri
 
 
 def check_npm_lock(directory, name, pin):
@@ -93,6 +101,8 @@ class LocalRunner:
         self.bundle = Path(bundle).absolute() if bundle else None
         self.marker = self.root/'var/lib/universal-linux-installer/ownership.json'
         if self.root == Path('/'):
+            from workflow import validate_plan_age
+            validate_plan_age(workflow)
             if os.geteuid() != 0: raise ValueError('root-required')
             identity = hashlib.sha256(Path('/etc/machine-id').read_bytes()).hexdigest()
             if workflow['target'] != identity: raise ValueError('target-binding')
@@ -122,6 +132,8 @@ class LocalRunner:
         return Journal(self.root/'var/lib/universal-linux-installer/execution', self.workflow['target'])
 
     def call(self, argv, cwd=None):
+        if self.transport is command:
+            return command(argv, cwd=cwd, allow_proxy_env=self.workflow.get('allow_proxy_env', False))
         return self.transport(argv, cwd=cwd)
 
     def reboot_required(self):
@@ -143,14 +155,14 @@ class LocalRunner:
     def apply(self, step):
         kind = step['kind']
         if kind == 'sources':
-            validate_sources(self.root)
+            validate_sources(self.root,self.workflow.get('allow_mirrors',()))
             from node import verify_key, universe_present, universe_source, SOURCE
             verify_key(self.root, self.call)
-            if self.workflow['profile'] != 'DB' and not universe_present(self.root,self.workflow['arch']):
+            if self.workflow['profile'] != 'DB' and not universe_present(self.root,self.workflow['arch'],self.workflow.get('allow_mirrors',())):
                 from sources import BASE_SUITES, universe_coverage
-                missing=BASE_SUITES-universe_coverage(self.root,self.workflow['arch'])
-                self.write_new(SOURCE, universe_source(self.workflow['arch'],missing,self.root))
-                validate_sources(self.root)
+                missing=BASE_SUITES-universe_coverage(self.root,self.workflow['arch'],self.workflow.get('allow_mirrors',()))
+                self.write_new(SOURCE, universe_source(self.workflow['arch'],missing,self.root,self.workflow.get('allow_mirrors',())))
+                validate_sources(self.root,self.workflow.get('allow_mirrors',()))
             self.write_new('var/lib/universal-linux-installer/ownership.json', json.dumps({'plan_id': self.workflow['plan_id']}), 0o600)
             self.owned = True
             self.write_new('usr/sbin/policy-rc.d', SERVICE_BLOCK, 0o755)
@@ -160,14 +172,14 @@ class LocalRunner:
             self.swap_report = self.swap.apply()
         elif kind == 'apt-refresh':
             from node import verify_key
-            validate_sources(self.root); verify_key(self.root, self.call)
+            validate_sources(self.root,self.workflow.get('allow_mirrors',())); verify_key(self.root, self.call)
             self.call(['/usr/bin/apt-get', *APT_SECURITY, 'update'])
             from node import verify_releases
-            verify_releases(self.root,self.call)
+            verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',()))
         elif kind == 'apt':
-            validate_sources(self.root)
+            validate_sources(self.root,self.workflow.get('allow_mirrors',()))
             from node import verify_key, package_available, verify_releases
-            verify_key(self.root, self.call); verify_releases(self.root,self.call); package_available(self.call, step['pins'])
+            verify_key(self.root, self.call); verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',())); package_available(self.call, step['pins'])
             if (self.root/'usr/sbin/policy-rc.d').read_text() != SERVICE_BLOCK:
                 raise ValueError('service-start-guard')
             self.package_preflight(step['pins'])
@@ -213,19 +225,19 @@ class LocalRunner:
 
     def package_preflight(self, pins):
         from node import verify_key, verify_releases, package_available
-        validate_sources(self.root); verify_key(self.root,self.call)
-        verify_releases(self.root,self.call); package_available(self.call,pins)
+        validate_sources(self.root,self.workflow.get('allow_mirrors',())); verify_key(self.root,self.call)
+        verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',())); package_available(self.call,pins)
+        for name,version in pins.items():
+            current=self.package_version(name)
+            if current and current!=version:
+                try:self.call(['/usr/bin/dpkg','--compare-versions',version,'ge',current])
+                except RuntimeError:raise ValueError('package-downgrade-refused') from None
         argv_pins = [name+'='+version for name, version in sorted(pins.items())]
         simulation = self.call(['/usr/bin/apt-get', *APT_SECURITY, '--no-remove', '--no-install-recommends', '-s', 'install', *argv_pins])
-        changes = {}
-        for line in simulation.splitlines():
-            if line.startswith('Remv '): raise ValueError('package-removal-refused')
-            if line.startswith('Inst '):
-                match = re.match(r'Inst ([a-z0-9+.-]+)(?: \[[^]]+\])? \(([^ ]+)', line)
-                if not match: raise ValueError('apt-simulation-format')
-                name, version = match.groups()
-                if pins.get(name) != version: raise ValueError('unpinned-dependency')
-                changes[name] = version
+        from resolve import simulation_changes
+        changes = simulation_changes(simulation)
+        for name,version in changes.items():
+            if pins.get(name) != version: raise ValueError('unpinned-dependency')
         for name, version in pins.items():
             if self.package_version(name) != version and changes.get(name) != version:
                 raise ValueError('apt-simulation-incomplete')
@@ -240,7 +252,7 @@ class LocalRunner:
         kind = step['kind']
         if kind == 'sources':
             from node import verify_key, universe_present
-            return validate_sources(self.root) and verify_key(self.root,self.call) and (self.workflow['profile']=='DB' or universe_present(self.root,self.workflow['arch']))
+            return validate_sources(self.root,self.workflow.get('allow_mirrors',())) and verify_key(self.root,self.call) and (self.workflow['profile']=='DB' or universe_present(self.root,self.workflow['arch'],self.workflow.get('allow_mirrors',())))
         if kind == 'swap': return self.swap.validate()
         if kind == 'apt-preflight':
             self.package_preflight(step['pins']); return True
@@ -281,6 +293,6 @@ class LocalRunner:
             if step['profile'] != 'DB':
                 if not self.call(['/usr/bin/dotnet', '--list-sdks']).startswith('10.'): return False
                 from node import check_runtime
-                if not check_runtime(self.call,self.workflow['lock']['apt']): return False
+                if not check_runtime(self.call,{**self.workflow['lock']['apt'],**self.workflow['lock']['updates']}): return False
             return True
         return False

@@ -25,10 +25,12 @@ def verify_key(root, call):
     # Read ONLY the explicit keyring. Disable default keyring/trustdb/daemon
     # initialization and lock writes; trust is established by fingerprints below,
     # not by the listing command's trust-model option.
-    output = call(['/usr/bin/gpg','--no-options','--batch','--no-autostart',
+    try:
+        output = call(['/usr/bin/gpg','--no-options','--batch','--no-autostart',
                    '--homedir','/nonexistent','--no-default-keyring','--keyring',str(key),
                    '--trust-model','always','--no-auto-check-trustdb','--lock-never',
                    '--with-colons','--list-keys'])
+    except FileNotFoundError: raise ValueError('archive-key-gpg-required') from None
     fingerprints = set(); primary = False
     for line in output.splitlines():
         fields = line.split(':')
@@ -44,12 +46,12 @@ def verify_key(root, call):
     return True
 
 
-def universe_present(root, arch=None):
+def universe_present(root, arch=None, allow_mirrors=()):
     from sources import BASE_SUITES, universe_coverage
-    return BASE_SUITES <= universe_coverage(root,arch)
+    return BASE_SUITES <= universe_coverage(root,arch,allow_mirrors)
 
 
-def universe_source(arch, suites=None, root=None):
+def universe_source(arch, suites=None, root=None, allow_mirrors=()):
     from sources import BASE_SUITES
     suites=BASE_SUITES if suites is None else set(suites)
     if not suites<=BASE_SUITES: raise ValueError('apt-suite')
@@ -61,7 +63,7 @@ def universe_source(arch, suites=None, root=None):
     stanzas=[]
     if root is not None:
         from sources import read_sources
-        entries=read_sources(root)['entries']
+        entries=read_sources(root,allow_mirrors)['entries']
         for suite in sorted(suites):
             candidates=[e for e in entries if 'deb' in e['types'] and suite in e['suites'] and (not e['architectures'] or apt_arch in e['architectures'])]
             if not candidates: raise ValueError('universe-base-source-required')
@@ -137,16 +139,10 @@ def verify_signature(path, keyring, call):
     return True
 
 
-def verify_releases(root, call):
-    from sources import read_sources, BASE_SUITES
-    from urllib.parse import urlsplit
+def verify_releases(root, call, allow_mirrors=(), enforce_policy=True):
+    from sources import release_paths, BASE_SUITES
     root=Path(root); key=root/KEYRING.lstrip('/')
-    expected={}
-    for entry in read_sources(root)['entries']:
-        for uri in entry['uris']:
-            parts=urlsplit(uri); prefix=parts.hostname+parts.path.replace('/','_')
-            for suite in entry['suites']:
-                expected[prefix+'_dists_'+suite+'_InRelease']=suite
+    expected=release_paths(root, allow_mirrors, enforce_policy)
     suites=set(); missing=False
     for name,suite in sorted(expected.items()):
         path=root/'var/lib/apt/lists'/name

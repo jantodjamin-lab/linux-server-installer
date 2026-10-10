@@ -15,14 +15,39 @@ FIELDS = {'types','uris','suites','components','signed-by','architectures','enab
           'check-valid-until','check-date'}
 
 
-def approve_uri(uri):
-    parts = urlsplit(uri)
-    host = parts.hostname or ''
-    if parts.scheme not in ('http','https') or not (host in ('archive.ubuntu.com','security.ubuntu.com','ports.ubuntu.com') or host.endswith('.archive.ubuntu.com')) or parts.username or parts.password or parts.query or parts.fragment or parts.port:
-        raise ValueError('unapproved-apt-source')
-    expected = '/ubuntu-ports' if host == 'ports.ubuntu.com' else '/ubuntu'
-    if parts.path.rstrip('/') != expected: raise ValueError('apt-source-path')
-    return uri.rstrip('/')
+def approve_uri(uri, allow_mirrors=(), enforce_policy=True):
+    normalized = mirror_uri(uri)
+    parts = urlsplit(normalized)
+    host = parts.hostname
+    canonical = host in ('archive.ubuntu.com','security.ubuntu.com','ports.ubuntu.com') or host.endswith('.archive.ubuntu.com')
+    if canonical:
+        expected = '/ubuntu-ports' if host == 'ports.ubuntu.com' else '/ubuntu'
+        if parts.path.rstrip('/') != expected: raise ValueError('apt-source-path')
+    elif enforce_policy and normalized not in {mirror_uri(v) for v in allow_mirrors}:
+        raise MirrorError(normalized)
+    return normalized.rstrip('/') if canonical else normalized
+
+
+class MirrorError(ValueError):
+    def __init__(self, uri):
+        self.uri = uri
+        self.host = urlsplit(uri).hostname
+        self.remedy = 'rerun with --allow-mirror '+uri
+        super().__init__('unapproved-apt-source')
+
+
+def mirror_uri(uri):
+    try:
+        parts = urlsplit(uri)
+        if parts.port is not None: raise ValueError('port')
+    except ValueError: raise ValueError('mirror-uri-invalid') from None
+    if len(uri)>2048: raise ValueError('mirror-uri-invalid')
+    if parts.scheme not in ('http','https') or not parts.hostname or parts.username or parts.password or parts.query or parts.fragment:
+        raise ValueError('mirror-uri-invalid')
+    if not re.fullmatch(r'[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?', parts.netloc) or not parts.path.startswith('/') or '..' in parts.path.split('/') or not re.fullmatch(r'/[A-Za-z0-9_./-]*', parts.path):
+        raise ValueError('mirror-uri-invalid')
+    if len(parts.hostname)>253 or any(len(label)>63 for label in parts.hostname.split('.')):raise ValueError('mirror-uri-invalid')
+    return parts.scheme+'://'+parts.netloc+parts.path
 
 
 def safe_file(path):
@@ -66,7 +91,7 @@ def legacy(text):
         yield fields
 
 
-def read_sources(root):
+def read_sources(root, allow_mirrors=(), enforce_policy=True):
     root=Path(root)
     paths=[root/'etc/apt/sources.list']+sorted((root/'etc/apt/sources.list.d').glob('*'))
     entries=[]; disabled=0
@@ -87,7 +112,7 @@ def read_sources(root):
                 raise ValueError('apt-source-keyring')
             uris=fields.get('uris','').split()
             if not uris: raise ValueError('apt-source-uri-required')
-            uris=[approve_uri(uri) for uri in uris]
+            uris=[approve_uri(uri, allow_mirrors, enforce_policy) for uri in uris]
             suites=set(fields.get('suites','').split())
             if not suites or not suites<=SUITES: raise ValueError('apt-suite')
             components=set(fields.get('components','').split())
@@ -97,7 +122,7 @@ def read_sources(root):
             architectures=set(fields.get('architectures','').split())
             if not architectures<={'amd64','arm64','i386','armhf','ppc64el','riscv64','s390x'}:
                 raise ValueError('apt-source-architecture')
-            entries.append({'uris':uris,'suites':sorted(suites),'components':sorted(components),
+            entries.append({'source_file':path.name,'uris':uris,'suites':sorted(suites),'components':sorted(components),
                             'types':sorted(types),'architectures':sorted(architectures),'signed_by':' '.join(fields['signed-by'].split())})
     binary=[e for e in entries if 'deb' in e['types']]
     if not binary: raise ValueError('no-approved-apt-sources')
@@ -107,23 +132,34 @@ def read_sources(root):
     return {'entries':entries,'disabled_stanzas':disabled}
 
 
-def validate_sources(root):
-    read_sources(root)
+def validate_sources(root, allow_mirrors=()):
+    read_sources(root, allow_mirrors)
     return True
 
 
-def universe_coverage(root, arch=None):
+def universe_coverage(root, arch=None, allow_mirrors=()):
     expected={'x86_64':'amd64','aarch64':'arm64'}.get(arch)
     covered=set()
-    for entry in read_sources(root)['entries']:
+    for entry in read_sources(root, allow_mirrors)['entries']:
         if 'deb' in entry['types'] and 'universe' in entry['components'] and (not expected or not entry['architectures'] or expected in entry['architectures']):
             covered.update(entry['suites'])
     return covered
 
 
-def source_summary(root, arch=None):
-    data=read_sources(root)
+def source_summary(root, arch=None, allow_mirrors=()):
+    data=read_sources(root, allow_mirrors)
     suites={s for e in data['entries'] if 'deb' in e['types'] for s in e['suites']}
     return {'active_stanzas':len(data['entries']),'disabled_stanzas':data['disabled_stanzas'],
             'suites':sorted(suites),'missing_base_suites':sorted(BASE_SUITES-suites),
-            'universe_missing_suites':sorted(BASE_SUITES-universe_coverage(root,arch))}
+            'universe_missing_suites':sorted(BASE_SUITES-universe_coverage(root,arch,allow_mirrors))}
+
+
+def release_paths(root, allow_mirrors=(), enforce_policy=True):
+    from urllib.parse import urlsplit
+    expected = {}
+    for entry in read_sources(root, allow_mirrors, enforce_policy)['entries']:
+        for uri in entry['uris']:
+            parts = urlsplit(uri); prefix = parts.hostname+parts.path.rstrip('/').replace('/', '_')
+            for suite in entry['suites']:
+                expected[prefix+'_dists_'+suite+'_InRelease'] = suite
+    return expected

@@ -15,13 +15,13 @@ def validate_lock(lock, profile, development):
         if not isinstance(lock[field], dict):
             raise ValueError('lock-map')
     required = set(PROFILES[profile]['packages']) | {'ca-certificates'}
-    apt = lock['apt']
+    apt = {**lock['apt'], **lock['updates']}
     if not required <= set(apt):
         raise ValueError('profile-package-set')
     for name, version in {**apt, **lock['updates']}.items():
         if not APT_NAMES.fullmatch(name) or not isinstance(version, str) or not APT_VERSION.fullmatch(version):
             raise ValueError('apt-pin')
-    if set(apt) & set(lock['updates']):
+    if set(lock['apt']) & set(lock['updates']):
         raise ValueError('duplicate-update')
     if profile != 'DB':
         if not apt['dotnet-sdk-10.0'].split(':')[-1].startswith('10.'):
@@ -50,7 +50,7 @@ def validate_lock(lock, profile, development):
     return copy.deepcopy(lock)
 
 
-def build_workflow(profile, observed, lock, development=False, system_updates=False):
+def build_workflow(profile, observed, lock, development=False, system_updates=False, *, created_at=None, allow_mirrors=(), allow_proxy_env=False, authorization=None):
     lock = validate_lock(lock, profile, development)
     audit = plan(profile, observed)
     ports = observed.get('tcp_ports', [])
@@ -69,8 +69,8 @@ def build_workflow(profile, observed, lock, development=False, system_updates=Fa
              {'id':'package-preflight','kind':'apt-preflight','pins':{**lock['apt'],**lock['updates']}},
              {'id':'swap','kind':'swap','reserve_bytes':PROFILES[profile]['disk_gib']*2**30}]
     if lock['updates']:
-        steps.append({'id':'system-updates','kind':'apt','pins':lock['updates']})
-    steps.append({'id': 'packages', 'kind': 'apt', 'pins': lock['apt']})
+        steps.append({'id':'system-updates','kind':'apt-preflight','pins':{**lock['apt'], **lock['updates']}})
+    steps.append({'id': 'packages', 'kind': 'apt', 'pins': {**lock['apt'], **lock['updates']}})
     if profile != 'DB':
         steps.append({'id': 'app-config', 'kind': 'app-config'})
         for name, pin in lock['npm'].items():
@@ -78,7 +78,11 @@ def build_workflow(profile, observed, lock, development=False, system_updates=Fa
     if profile != 'APP':
         steps.append({'id': 'db-config', 'kind': 'db-config'})
     steps.append({'id': 'validate', 'kind': 'validate', 'profile': profile, 'development': development})
-    body = {'schema': 4, 'profile': profile, 'development': development, 'system_updates': system_updates,
+    for step in steps:
+        step['effect'] = 'readonly' if step['kind'] == 'apt-preflight' else 'idempotent' if step['kind'] == 'apt-refresh' else 'effectful'
+    from datetime import datetime, timezone
+    if created_at is None: created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    body = {'schema': 5, 'created_at': created_at, 'allow_mirrors': sorted(allow_mirrors), 'allow_proxy_env': bool(allow_proxy_env), 'authorization': authorization, 'profile': profile, 'development': development, 'system_updates': system_updates,
             'lock': lock, 'steps': steps, 'target': observed.get('target', 'unverified'),
             'status': 'WARN', 'live_validated': False,
             'effects': ['explicit Ubuntu universe Node 22 LTS/npm 9 source', 'signed Ubuntu apt refresh', 'deficit-only persistent swap to 4 GiB', 'exact-version package installs',
@@ -87,3 +91,14 @@ def build_workflow(profile, observed, lock, development=False, system_updates=Fa
             'arch': observed['arch'], 'capacity':audit['capacity'], 'warnings':audit['warnings'], 'observations_sha256': digest(observed)}
     body['plan_id'] = digest(body)
     return body
+
+
+def validate_plan_age(workflow, now=None):
+    from datetime import datetime, timezone, timedelta
+    if workflow.get('schema') != 5: raise ValueError('saved-plan-schema-regenerate-rc5')
+    try:
+        created = datetime.fromisoformat(workflow['created_at'])
+        if created.tzinfo is None: raise ValueError('date')
+    except (KeyError, TypeError, ValueError): raise ValueError('plan-date-invalid') from None
+    age = (now or datetime.now(timezone.utc)) - created
+    if age > timedelta(hours=2) or age < timedelta(minutes=-5): raise ValueError('plan-expired')

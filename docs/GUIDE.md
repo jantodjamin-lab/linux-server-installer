@@ -1,95 +1,130 @@
 # Operator guide
 
-## Audit and plan
-
-Use an unprivileged shell for audit. Use --json to save details in a new private file. A failing
-inventory blocks installation. Candidate OS: Ubuntu 26.04, amd64/arm64; live
-support on either architecture remains unverified. Minimum 1 CPU, 843 MiB RAM
-and APP/DB/APP+DB 10/20/30 GiB free disk; these are test minima, not capacity
-assurance. Execution adds only the swap deficit to 4 GiB on ext4/XFS during explicitly approved execution. Free disk reserves must remain after allocation.
-
-A lock is schema 2 with apt, npm and updates maps. Apt names map to exact Debian
-versions. Include every profile package, ca-certificates, and the full new or
-changed dependency closure. APP additionally includes curl for its validator.
-Unpinned dependencies, removals, downgrades or initial version conflicts stop.
-No mutable latest/channel version is accepted. No guessed lock is shipped.
-Review apt simulation and signed metadata on the target to construct the lock;
-this release has no universal pre-resolved dependency closure.
-
-Npm entries are @angular/cli (APP) and optionally @openai/codex (development
-APP only), each with exact version and SHA256 of its package-lock.json. Provide
-bundle/angular and optional bundle/codex directories, each containing a
-package.json with only that exact direct dependency and a v3 package-lock.json
-with registry.npmjs.org HTTPS URLs and SHA512 integrity for dependencies.
-Angular 20 uses the explicitly selected Ubuntu Node 22.12+ LTS provider; major 24 is not a fallback.
-Do not embed credentials, scripts, local paths, git URLs or mutable tags.
-
-```json
-{"schema":2,"apt":{"git":"EXACT-DEBIAN-VERSION"},"npm":{},"updates":{}}
-```
-
-This fragment describes structure only; it deliberately fails validation as
-an incomplete lock. Resolve and review a complete target-specific lock first.
+## Read-only inspection
 
 ```sh
-sh install.sh --profile APP --lock reviewed-lock.json > reviewed-plan.json
+sh install.sh --profile APP+DB --audit
+sh install.sh --profile APP+DB --audit --json
 ```
 
-An explicit --system-updates flag is required when updates is nonempty.
-Only its exact listed package versions are upgraded; no full/dist-upgrade.
-Add --development for Codex. Use the same flags at execution.
-Plan hashes bind the profile, pins, options, target identity digest and actions.
-Protect saved plans privately. Inspect effects before granting INSTALL approval.
+Fresh Ubuntu 26.04 amd64/arm64 only. Admission minima are 1 CPU, 843 MiB physical
+RAM, 10/20/30 GiB disk reserve for APP/DB/APP+DB AFTER swap. Recommended RAM is
+2/2/4 GiB. These are disposable-test minima; 843 MiB is insufficient for reliable
+APP+DB builds/runtime even with swap. Only writable ext4/XFS may add a swap file.
+Existing swap counts toward 4 GiB and is never resized/disabled/removed.
 
-## Later manual installation — not performed during development
+Source policy, Canonical keys, cached signatures and candidates appear separately.
+A refused mirror no longer causes a not-checked cascade. Index >7 days old gives
+WARN with Date/mtime/stamp details in JSON: candidates/closure remain unreliable
+until authorized refresh. Missing nodejs/npm before refresh is not evidence they
+will become available. Missing gpg: manually authorize prerequisite installation;
+see audit remedy. The installer does not initialize ~/.gnupg.
 
-Confirm the exact target through an independent channel and a fresh restorable
-snapshot. Use a new/disposable target; existing service/data directories or an
-existing policy-rc.d are rejected. Review the source keyring and apt configuration.
-Confirm sufficient space, current signed repository metadata, pinned versions,
-network access to official feeds and npm, and no existing listener on 8080/5432.
-A separate owner approval for the actual target is still mandatory.
+For an exact public provider URI shown in diagnostics:
 
 ```sh
-sh install.sh --profile APP --plan reviewed-plan.json --execute \
-  --npm-bundle reviewed-bundle --approval INSTALL:REVIEWED_PLAN_SHA256 \
-  --snapshot-confirmed --allow-unvalidated
+sh install.sh --profile APP+DB --audit --allow-mirror https://mirror.example/ubuntu/path
 ```
 
-Run manually as root using the operator's normal privilege policy, or add --sudo
-to the explicitly approved --execute command from an interactive terminal.
-Sudo performs authorization itself; no password is read, stored or piped by the
-installer. No askpass or stdin-password mode is allowed. Audit never invokes sudo.
-RC4 plans use schema 4; regenerate and review older plans before execution. The example's hash placeholder is not valid approval.
-No automatic reboot is performed. Reboot-required stops return WARN. Review and
-reboot manually, then resume the same plan. A failed/pending step requires
---recovery-reviewed after effects have been checked. A process lock never grants
-review or retries by itself. Different plans cannot adopt ownership state.
+Use the ACTUAL URI, including scheme and path, not this placeholder. Repeat for
+additional URIs. HTTP requires explicit opt-in too. Ports/wildcards/userinfo/query
+and fragments are refused. Signatures are still required for every InRelease.
+Captured provider source fixtures must be supplied by their owner; synthetic
+fixtures never establish compatibility with an unseen provider configuration.
 
-## Failure and repeat
+## Apply with one typed INSTALL confirmation
 
-JSON reports contain bounded error codes only. Private checkpoints reside under
-/var/lib/universal-linux-installer/checkpoints. Preserve evidence and investigate
-actual effects before retry. A pending package operation can leave installed
-packages; revalidate before resuming. Existing exact versions are idempotent.
-New configuration files are never replaced with different contents. Drift stops.
-A failed package step retains /usr/sbin/policy-rc.d to block unattended package
-service starts. Do not remove it blindly; review why execution stopped and either
-resume the reviewed plan or repair/restore the target manually. Other package
-maintenance is blocked by this guard until final validation removes it.
+On an independently verified fresh disposable target with restorable snapshot:
 
-Successful final validation checks package pins, npm installed versions,
-Nginx syntax/service/HTTP, .NET SDK, Node major, PostgreSQL readiness/version,
-loopback binding and authentication settings. PASS means adapter validators
-passed, not that live acceptance or production suitability was demonstrated.
-No databases or database roles for an application are created. Codex authentication
-is a separate manual user action. Tool paths are under
-/opt/universal-linux-installer/{angular,codex}/node_modules/.bin/.
+```sh
+sh install.sh --profile APP+DB --apply --sudo --snapshot-confirmed --allow-unvalidated
+```
 
-## Release verification
+The flags explicitly acknowledge snapshot and candidate risk. Without them,
+there are separate yes/no questions BEFORE the INSTALL confirmation. Sudo may
+also prompt for its own authorization; the installer never reads that password.
+Add `--development` for the shipped optional Codex pin (APP profiles only).
+Cloud-image upgrades often require `--system-updates`; this must be explicit.
+Add the same reviewed `--allow-mirror URI` exceptions used during audit.
 
-Download the versioned archive and SHA256SUMS from the matching GitHub release.
-Verify SHA256SUMS against a separately trusted checksum before extracting.
-`sha256sum -c SHA256SUMS` detects corruption; unsigned checksums do not establish
-publisher identity. Never pipe an unverified downloaded script into a shell.
-Inspect the archive, run tests, and use audit before any installation decision.
+The operator types `INSTALL <first 12 characters of authorization hash>` on the
+TTY. This binds installation intent and limits, NOT a fabricated/stale package
+lock. No target writes occur before this confirmation. Afterwards: wait for
+cloud-init (default), warn about unattended upgrades, append only missing universe
+components if needed, refresh signed indexes, resolve exact closure and self-test
+through executor preflight. Exceeding limits stops before swap/packages/services.
+`--max-new-packages` defaults to 1000 and `--max-updates` to 100; updates are still
+forbidden without `--system-updates`. No broad full/dist-upgrade is performed.
+`--no-wait-cloud-init` explicitly disables waiting, at the operator's discretion.
+
+A compact resolved summary shows counts, upper-bound package sizes, swap deficit,
+npm pins and exact plan hash. It and lock.json/plan.json are stored root-only in
+`/var/lib/universal-linux-installer/checkpoints/<authorization-hash>/` (0700/0600).
+Package-size estimates exclude npm/swap; unavailable size metadata is unknown.
+All packages are installed as one exact closure, with no-remove/no-downgrade.
+Target npm locks come from bundle/angular and bundle/codex automatically; override
+with `--npm-bundle DIR` only when matching the reviewed profiles/npm-pins.json.
+Behind a proxy, explicitly add `--allow-proxy-env`; credentials are not persisted.
+
+Noninteractive: supply `--approval INSTALL:<full-authorization-hash>`, snapshot
+and candidate flags. The printed bounded intent must match exactly. There is no
+auto-yes flag, default acceptance or silent expansion of limits/source policy.
+
+## Separate resolution/review/execution
+
+Resolution intentionally WRITES metadata, unlike audit. Run as root, or use
+interactive --sudo:
+
+```sh
+sh install.sh --profile APP --resolve --out /root/installer-review --refresh-metadata --sudo --system-updates
+sh install.sh --profile APP --execute --plan /root/installer-review/plan.json \
+  --approval INSTALL:EXACT_PLAN_HASH --snapshot-confirmed --allow-unvalidated --sudo --system-updates
+```
+
+Repeat matching development/mirror/proxy options. The first flag is explicit
+refresh authorization only; the second INSTALL binds the exact resolved plan.
+Manual schema-2 locks use `--lock FILE` and the same workflow/validation path.
+Schema-5 plans have a UTC created_at and expire after 2h. Schema-4 plans are refused:
+regenerate rather than changing schema/hash manually. Expired partial installations
+need reviewed recovery; never replace their ownership marker to adopt a new plan.
+
+## Diagnostics, interruption and repeat
+
+Exit codes: 0 PASS/WARN, 1 failure, 2 argument error, 130 cancellation.
+`--show-diagnostics` prints the redacted private failure tail to stderr only.
+Stdout/JSON and journal events hold bounded code + step + command + exit status.
+Preserve checkpoints/diagnostics (root-only). A safe network/read-only interruption
+clears pending automatically; packages/swap/config/npm/validate require explicit
+`--recovery-reviewed` AFTER inspecting effects. SIGKILL safe-step recovery follows
+the same rule on next invocation. Completed steps revalidate; drift stops.
+
+Re-run the SAME --apply options within 2h to resume/revalidate the SAME saved plan.
+A successful repeat does not reinstall packages/npm or allocate/edit swap again.
+No automatic reboot: WARN manual-reboot-required requires operator review/reboot
+then resume. The policy-rc.d guard remains after failure; do not remove blindly.
+Other package maintenance may remain blocked until approved recovery completes.
+A failed resolver summary gives a bounded cause without requiring the owner to
+guess stderr. Incomplete preparation also has its own journal and retry classes.
+
+Nginx: 127.0.0.1:8080; PostgreSQL: localhost:5432, SCRAM/peer. Tool binaries are
+under /opt/universal-linux-installer/{angular,codex}/node_modules/.bin. No database
+roles/application deployment/login/network opening is included.
+
+## Validation layers and development
+
+Layer 1: `python3 -B -W error::ResourceWarning -m unittest discover -s tests`.
+Layer 2: `docker run --rm -v "$PWD:/work" -w /work ubuntu:26.04 sh tools/container-test.sh`
+(installs packages ONLY in the disposable container). The script checks real
+signed metadata and resolvers for every profile plus Ubuntu npm9 npm-ci. Container
+resource/systemd admission is synthetic; no service/swap e2e claim follows.
+Layer 3: `sh tools/e2e-vm.sh APP` (local KVM only, prerequisites below).
+See docs/ARCHITECTURE.md for scenarios and retained artifacts. Neither unit nor
+container PASS changes NOT LIVE VALIDATED. Owner acceptance remains required.
+
+Generate public npm locks in development/CI with explicit versions:
+`python3 -B tools/make-npm-bundle.py --angular 20.3.39 --codex 0.128.0`.
+Manual refresh-npm-lock CI opens a review PR, never auto-merges it.
+
+Build: `python3 -B release/build.py`; generated tarballs are ignored by Git and
+belong in GitHub Releases. Verify SHA256SUMS against an independently trusted
+checksum, inspect/extract the archive and audit. Never pipe a download into sh.

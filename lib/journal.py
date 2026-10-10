@@ -71,8 +71,8 @@ class Journal:
         finally:
             if os.path.exists(temporary): os.unlink(temporary)
 
-    def event(self, event, step=None):
-        self.state['events'].append({'sequence': len(self.state['events'])+1, 'event': event, 'step': step})
+    def event(self, event, step=None, **metadata):
+        self.state['events'].append({'sequence': len(self.state['events'])+1, 'event': event, 'step': step, **metadata})
         self.save()
 
 
@@ -85,11 +85,16 @@ def run_workflow(workflow, runner, directory, recovery_review=False):
 def _run_workflow(workflow, runner, directory, recovery_review=False):
     with Journal(directory, workflow['plan_id']) as journal:
         if journal.state['pending']:
-            if recovery_review is not True:
-                raise ValueError('uncertain-effects-review-required')
-            journal.event('RECOVERY_REVIEWED', journal.state['pending'])
-            journal.state['pending'] = None
-            journal.save()
+            pending = next((s for s in workflow['steps'] if s['id'] == journal.state['pending']), None)
+            if pending is None: raise ValueError('journal-unknown-step')
+            if pending.get('effect', 'effectful') in ('readonly', 'idempotent'):
+                journal.state['pending'] = None
+                journal.event('AUTO_CLEARED', pending['id'])
+            else:
+                if recovery_review is not True: raise ValueError('uncertain-effects-review-required')
+                journal.event('RECOVERY_REVIEWED', journal.state['pending'])
+                journal.state['pending'] = None
+                journal.save()
         for step in workflow['steps']:
             if step['id'] in journal.state['done']:
                 if not runner.validate(step):
@@ -103,9 +108,21 @@ def _run_workflow(workflow, runner, directory, recovery_review=False):
                 runner.apply(step)
                 if not runner.validate(step):
                     raise ValueError('postcondition')
-            except Exception:
-                journal.event('FAILED', step['id'])
-                raise RuntimeError('action-failed-see-private-journal') from None
+            except Exception as error:
+                from errors import CommandError, WorkflowError, failure_metadata
+                metadata = failure_metadata(step['id'], error)
+                diagnostic_path = None
+                if isinstance(error, CommandError):
+                    diagnostics = private_directory(journal.root/'diagnostics')
+                    diagnostic_path = diagnostics/(step['id']+'-'+str(len(journal.state['events'])+1)+'.log')
+                    fd = os.open(diagnostic_path, os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW, 0o600)
+                    with os.fdopen(fd, 'w') as stream:
+                        stream.write(error.stderr_tail); stream.flush(); os.fsync(stream.fileno())
+                journal.event('FAILED', **metadata)
+                if step.get('effect', 'effectful') in ('readonly', 'idempotent'):
+                    journal.state['pending'] = None
+                    journal.event('AUTO_CLEARED', step['id'])
+                raise WorkflowError(metadata, diagnostic_path) from None
             journal.state['done'].append(step['id'])
             journal.state['pending'] = None
             journal.event('VALIDATED', step['id'])

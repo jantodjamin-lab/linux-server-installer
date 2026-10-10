@@ -1,0 +1,148 @@
+name: Installer validation and optional prerelease
+on:
+  push:
+    branches: [release-candidate]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the tested version as a prerelease (never stable)
+        type: boolean
+        default: false
+      vm_image_url:
+        description: Optional official Ubuntu 26.04 cloud-image URL for local CI KVM test
+        type: string
+        default: ''
+      vm_image_sha256:
+        description: Independently verified image SHA256; empty means layer 3 skipped
+        type: string
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Offline tests, lint, controlled reproducible export
+        run: |
+          set -eu
+          python3 -B -W error::ResourceWarning -m unittest discover -s tests
+          sh -n install.sh
+          for script in tools/*.sh; do sh -n "$script"; done
+          python3 -B tools/check-syntax.py
+          python3 -m venv "$RUNNER_TEMP/lint-venv"
+          "$RUNNER_TEMP/lint-venv/bin/python" -m pip install --disable-pip-version-check pyflakes==3.4.0
+          "$RUNNER_TEMP/lint-venv/bin/python" -m pyflakes lib tools
+          python3 -B release/build.py
+          cp release/*.tar.gz "$RUNNER_TEMP/first.tar.gz"
+          python3 -B release/build.py
+          cmp "$RUNNER_TEMP/first.tar.gz" release/*.tar.gz
+          (cd release && sha256sum -c SHA256SUMS)
+          mkdir "$RUNNER_TEMP/extracted"
+          tar -xzf release/*.tar.gz -C "$RUNNER_TEMP/extracted"
+          python3 -B -W error::ResourceWarning -m unittest discover -s "$RUNNER_TEMP/extracted/$(python3 -B -c "import sys; sys.path.insert(0,'release'); from build import VERSION; print('universal-linux-installer-'+VERSION)")/tests"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: reproducible-candidate
+          path: |
+            release/*.tar.gz
+            release/SHA256SUMS
+            release/manifest.json
+            release/AUDIT.txt
+            release/build.py
+  container-amd64:
+    runs-on: ubuntu-24.04
+    container: ubuntu:26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Real Ubuntu archive resolver and Ubuntu npm9 (all profiles)
+        run: sh tools/container-test.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: layer2-amd64
+          path: /tmp/rc5-layer2.json
+          if-no-files-found: warn
+  container-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Best-effort QEMU user arm64
+        run: |
+          set -eu
+          docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2 --install arm64
+          docker run --rm --platform linux/arm64 -v "$PWD:/work" -w /work ubuntu:26.04 sh tools/container-test.sh
+  vm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [APP, DB, APP+DB]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Optional local KVM acceptance; record explicit skip
+        env:
+          IMAGE_URL: ${{ inputs.vm_image_url }}
+          IMAGE_SHA: ${{ inputs.vm_image_sha256 }}
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -eu
+          mkdir -p .e2e-logs
+          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            printf '%s\n' 'SKIPPED: no usable KVM; live_validated=false' | tee .e2e-logs/status.txt
+            exit 0
+          fi
+          if [ -z "$IMAGE_URL" ] || [ -z "$IMAGE_SHA" ]; then
+            printf '%s\n' 'SKIPPED: no owner-verified image/hash supplied; live_validated=false' | tee .e2e-logs/status.txt
+            exit 0
+          fi
+          case "$IMAGE_URL" in https://cloud-images.ubuntu.com/resolute/*) ;; *) exit 2;; esac
+          # Packages below are CI-runner test prerequisites, never target-host operations.
+          sudo apt-get -o DPkg::Lock::Timeout=600 update
+          sudo apt-get -o DPkg::Lock::Timeout=600 -y install qemu-system-x86 qemu-utils cloud-image-utils
+          curl -q --fail --location --proto '=https' --proto-redir '=https' "$IMAGE_URL" -o "$RUNNER_TEMP/ubuntu26.img"
+          export RC5_E2E_IMAGE="$RUNNER_TEMP/ubuntu26.img" RC5_E2E_IMAGE_SHA256="$IMAGE_SHA" RC5_E2E_MATRIX=1 TMPDIR="$PWD/.e2e-logs"
+          sh tools/e2e-vm.sh "$PROFILE" | tee .e2e-logs/status.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: layer3-${{ matrix.profile }}
+          path: |
+            .e2e-logs/status.txt
+            .e2e-logs/**/serial.log
+            .e2e-logs/**/artifacts/*
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/release-candidate'
+    needs: [unit, container-amd64, vm]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build version-derived authorized prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          python3 -B release/build.py
+          (cd release && sha256sum -c SHA256SUMS)
+          version=$(python3 -B -c "import sys; sys.path.insert(0,'release'); from build import VERSION; print(VERSION)")
+          gh release create "v$version" release/*.tar.gz release/SHA256SUMS release/manifest.json release/build.py release/AUDIT.txt --target "$GITHUB_SHA" --title "Universal Linux Installer v$version" --notes-file CHANGELOG.md --prerelease

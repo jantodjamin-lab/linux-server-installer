@@ -9,14 +9,19 @@ import tarfile
 
 BASE = Path(__file__).resolve().parents[1]
 OUT = BASE / 'release'
-VERSION = '1.0.0-rc.4'
+VERSION = '1.0.0-rc.5'
 
 
 def public_files():
-    names = ['install.sh', 'README.md', 'SECURITY.md', 'profiles/profiles.json',
-             'docs/GUIDE.md', 'docs/SOURCES.md', 'docs/ACCEPTANCE.md', 'docs/RC3.md', 'docs/RC4.md', 'tests/fixtures/ubuntu-archive-2018.b64', 'release/build.py']
-    names += [str(p.relative_to(BASE)) for folder, pattern in [('lib','*.py'), ('tests','test_*.py')]
+    names = ['install.sh', 'README.md', 'SECURITY.md', 'CHANGELOG.md', 'profiles/profiles.json',
+             'profiles/npm-pins.json', 'docs/GUIDE.md', 'docs/SOURCES.md', 'docs/ARCHITECTURE.md',
+             'tests/fixtures/ubuntu-archive-2018.b64', 'release/build.py']
+    names += [str(p.relative_to(BASE)) for folder, pattern in [('lib','*.py'), ('tests','test_*.py'), ('tools','*.py'), ('tools','*.sh')]
               for p in sorted((BASE/folder).glob(pattern))]
+    names += [str(p.relative_to(BASE)) for folder in ('angular','codex')
+              for p in sorted((BASE/'bundle'/folder).glob('package*.json'))]
+    # Captured fixtures require a separate explicit review before export. The
+    # optional provider fixture directory is NOT silently included by recursion.
     result = sorted(BASE/name for name in names)
     for path in result:
         if path.is_symlink() or not path.is_file() or path.stat().st_nlink != 1:

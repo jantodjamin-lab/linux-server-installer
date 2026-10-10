@@ -14,7 +14,7 @@ PROFILES = json.loads((BASE/'profiles/profiles.json').read_text())
 # Only installer-defined diagnostic codes may enter reports; never arbitrary
 # exception messages, process output, source URLs or credentials.
 PUBLIC_CODES = {
-    'system-inventory','package-inventory','listener-inventory','swap-inventory-format',
+    'mirror-uri-invalid','archive-key-gpg-required','system-inventory','package-inventory','listener-inventory','swap-inventory-format',
     'apt-source-symlink','apt-source-owner','apt-source-format','apt-source-duplicate',
     'apt-source-enabled','apt-source-unreviewed-option','insecure-apt-source',
     'apt-source-keyring','apt-source-uri-required','unapproved-apt-source',
@@ -40,7 +40,7 @@ def query(argv):
     return result.stdout
 
 
-def inventory(root='/', query_fn=None):
+def inventory(root='/', query_fn=None, allow_mirrors=()):
     root=Path(root).absolute(); call=query if query_fn is None else query_fn
     result={'kernel':platform.system(),'arch':platform.machine(),'cpu':os.cpu_count(),
             'errors':[],'diagnostics':[],'warnings':[]}
@@ -49,6 +49,9 @@ def inventory(root='/', query_fn=None):
         if isinstance(error,FileNotFoundError): code=stage+'-input-or-tool-missing'
         if isinstance(error,PermissionError): code=stage+'-permission-denied'
         diagnostic={'stage':stage,'code':code}
+        from sources import MirrorError
+        if isinstance(error, MirrorError): diagnostic.update(host=error.host, remedy=error.remedy)
+        if code == 'archive-key-gpg-required': diagnostic['remedy'] = 'Install gpg first: apt-get install gpg (explicit manual authorization required)'
         if tool: diagnostic['tool']=tool
         if isinstance(error,subprocess.CalledProcessError): diagnostic['exit_code']=error.returncode
         result['errors'].append(stage); result['diagnostics'].append(diagnostic)
@@ -83,27 +86,35 @@ def inventory(root='/', query_fn=None):
         result['swap_mount_rw']='rw' in rows[0]['options'].split(',')
         result['swap_disk_bytes']=shutil.disk_usage(parent).free
     except PROBE_ERRORS as error: failure('swap-storage-inventory',error,'findmnt')
-    result['sources_valid']=False
+    result['source_policy_valid']=False; result['key_valid']=False; result['sources_valid']=False
     try:
         from sources import source_summary
-        from node import verify_key
-        result['source_summary']=source_summary(root,result['arch'])
-        verify_key(root,call)
-        result['sources_valid']=True
+        result['source_summary']=source_summary(root,result['arch'],allow_mirrors)
+        result['source_policy_valid']=True
         result['node_universe']=not result['source_summary']['universe_missing_suites']
-    except PROBE_ERRORS as error: failure('source-inventory',error,'gpg/source-policy')
-    result['source_metadata']='not-checked'
-    if result['sources_valid']:
-        try:
-            from node import verify_releases
-            verify_releases(root,call);result['source_metadata']='verified-cached'
-        except PROBE_ERRORS as error:
-            if isinstance(error,ValueError) and error.args==('signed-release-metadata-required',):
-                result['source_metadata']='not-cached'
-                result['warnings'].append('source-metadata-not-cached; audit performs no refresh')
-            else:
-                result['sources_valid']=False;result['source_metadata']='failed'
-                failure('source-inventory',error,'gpgv')
+    except PROBE_ERRORS as error: failure('source-inventory',error,'source-policy')
+    # A rejected mirror must never suppress independent key/signature/cache probes.
+    try:
+        from node import verify_key
+        verify_key(root,call); result['key_valid']=True
+    except PROBE_ERRORS as error: failure('source-inventory',error,'gpg')
+    result['sources_valid']=result['source_policy_valid'] and result['key_valid']
+    result['source_metadata']='not-cached'
+    try:
+        from node import verify_releases
+        verify_releases(root,call,allow_mirrors,enforce_policy=False)
+        result['source_metadata']='verified-cached'
+    except PROBE_ERRORS as error:
+        if isinstance(error,ValueError) and error.args==('signed-release-metadata-required',):
+            result['warnings'].append('source-metadata-not-cached; audit performs no refresh')
+        else:
+            result['sources_valid']=False; result['source_metadata']='failed'
+            failure('cached-signatures',error,'gpgv')
+    try:
+        from index_age import index_age
+        result['apt_index_age']=index_age(root,allow_mirrors)
+    except PROBE_ERRORS:
+        result['apt_index_age']={'status':'WARN','age_days':None,'indexes':[]}
     result['service_manager']=(root/'run/systemd/system').is_dir() and (root/'usr/bin/systemctl').is_file()
     result['services']={}
     if result['service_manager']:
@@ -167,6 +178,12 @@ def plan(profile,observed):
     if source_data.get('missing_base_suites'): failures.append('package-source-suites')
     source_status='FAIL' if not sources_valid or source_data.get('missing_base_suites') else 'WARN' if observed.get('source_metadata')=='not-cached' else 'PASS'
     check('package-sources',source_status,'source policy + Canonical key fingerprints; '+observed.get('source_metadata','metadata requires fresh execution-time verification'))
+    check('source-policy','PASS' if observed.get('source_policy_valid',sources_valid) else 'FAIL','approved source URIs; see bounded host/remedy diagnostics')
+    check('archive-key','PASS' if observed.get('key_valid',sources_valid) else 'FAIL','Canonical fingerprint allowlist; no homedir/keybox/lock/trustdb writes')
+    cached=observed.get('source_metadata','not-cached')
+    check('cached-signatures','PASS' if cached=='verified-cached' else 'FAIL' if cached=='failed' else 'WARN',cached+'; independent of URI approval')
+    age=observed.get('apt_index_age',{'status':'WARN','age_days':None})
+    check('apt-index-age',age['status'],'index '+(str(age['age_days'])+' days old' if age.get('age_days') is not None else 'age unknown')+'; candidates/closure unreliable until refresh' if age['status']=='WARN' else 'cached indexes <=7 days old')
     missing=[p for p in policy['packages'] if not observed.get('package_candidates',{}).get(p)]
     if missing: warnings.append('packages-unavailable-in-current-cache: '+','.join(missing))
     check('packages','WARN' if missing else 'PASS','missing in current cache: '+','.join(missing) if missing else 'profile candidates visible; exact signed dependency closure still required')
@@ -174,6 +191,7 @@ def plan(profile,observed):
         from node import compatible_node_npm
         versions={name:observed.get('package_candidates',{}).get(name) for name in ('nodejs','npm')}
         status='WARN' if any(v is None for v in versions.values()) else 'PASS' if compatible_node_npm(versions) else 'FAIL'
+        if status=='FAIL' and (observed.get('apt_index_age',{}).get('status','WARN')=='WARN' or observed.get('source_metadata')!='verified-cached'): status='WARN'
         if status=='FAIL':failures.append('node-npm-compatibility')
         check('node-npm',status,'Ubuntu universe; Node 22 LTS >=22.12 and npm 9; exact versions/dependencies in JSON')
     manager=observed.get('service_manager') is True

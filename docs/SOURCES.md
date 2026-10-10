@@ -31,3 +31,5 @@ RC4 command-format references (reviewed 2026-10-10):
 The catalog lists Node 22.22.1 and npm 9.2.0 for resolute. RC4 requires an exact
 target-specific package lock and successful signed APT dependency simulation;
 these catalog entries do not prove every dependency is currently downloadable.
+
+RC5: [APT simulation](https://manpages.ubuntu.com/manpages/resolute/man8/apt-get.8.html), [npm9 locks](https://docs.npmjs.com/cli/v9/commands/npm-install/), [cloud-init wait](https://docs.cloud-init.io/en/latest/howto/wait_for_cloud_init.html).
