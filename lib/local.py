@@ -57,7 +57,9 @@ def command(argv, cwd=None, allow_proxy_env=False):
     return completed.stdout
 
 
-from sources import validate_sources as validate_sources
+def validate_sources(root, allow_mirrors=()):
+    from sources import validate_sources as policy
+    return policy(root,allow_mirrors)
 
 def approve_uri(uri, allow_mirrors=()):
     # Retain the public RC4 helper API; all policy lives in sources.py.

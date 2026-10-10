@@ -43,7 +43,7 @@ class Probe:
     def __call__(self,argv):
         self.calls.append(argv);tool=Path(argv[0]).name
         if tool=='swapon':
-            if argv[1:]!=['--show','--bytes','--noheadings','--raw','--output','NAME,SIZE']: raise AssertionError('unsupported swapon invocation')
+            if argv[1:]!=['--show=NAME,SIZE','--bytes','--noheadings','--raw']: raise AssertionError('unsupported swapon invocation')
             return self.swap
         if tool=='findmnt':return json.dumps({'filesystems':[{'fstype':'ext4','options':'rw,relatime'}]})
         if tool=='gpg':
