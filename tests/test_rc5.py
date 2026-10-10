@@ -215,8 +215,8 @@ class RC5ApprovalTests(unittest.TestCase):
             root=Path(tmp);audit_tree(root);before=snapshot(root)
             args=argparse.Namespace(profile='DB',resolve=False,approval=None,snapshot_confirmed=True,allow_unvalidated=True,state_dir=str(root/'var/lib/universal-linux-installer'))
             intent={'request_id':'a'*64,'mode':'apply','profile':'DB','limits':{'max_new_packages':1000,'max_updates':100},'system_updates':False,'allow_mirrors':[],'allow_proxy_env':False,'wait_cloud_init':True,'npm':{}}
-            with patch('apply.os.geteuid',return_value=0),patch('apply.request',return_value=intent),patch('apply.confirm',side_effect=ValueError('installation-not-confirmed')),contextlib.redirect_stderr(io.StringIO()):
-                with self.assertRaisesRegex(ValueError,'not-confirmed'):run_apply(args,dict(fixture(),target='fixture'))
+            with patch('apply.request',return_value=intent),patch('apply.confirm',side_effect=ValueError('installation-not-confirmed')),contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(ValueError,'not-confirmed'):run_apply(args,dict(fixture(),target='fixture'),root=root)
             self.assertEqual(before,snapshot(root));self.assertFalse(Path(args.state_dir).exists())
 
     def test_typed_and_noninteractive_gate(self):

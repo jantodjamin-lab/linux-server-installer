@@ -21,7 +21,9 @@ def main():
     assert json.loads((BASE/'profiles/profiles.json').read_text()) == PROFILES
     print('Layer 2: real package tools; capacity/systemd admission is covered by units/VM only',flush=True)
     assert verify_key('/',command)
-    print('real active_swap:',active_swap(command),flush=True)
+    raw_swap=command(['/usr/sbin/swapon','--show','--bytes','--noheadings','--raw','--output','NAME,SIZE'])
+    print('real util-linux swap rows:',repr(raw_swap),flush=True)
+    print('real active_swap:',active_swap(lambda _:raw_swap),flush=True)
     reports=[]
     for profile in PROFILES:
         data=inventory()
