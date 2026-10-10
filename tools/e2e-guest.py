@@ -6,6 +6,7 @@ import os
 import errno
 import fcntl
 import pty
+import re
 import platform
 import secrets
 import select
@@ -26,6 +27,13 @@ from errors import redact
 
 
 def checked(argv):return subprocess.run(argv,check=True,text=True,capture_output=True).stdout
+
+
+def sudo_password_prompt(output, echo_enabled=False):
+    """Accept documented classic/sudo-rs prompts only when terminal echo is off."""
+    clean=re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]',b'',bytes(output)).strip().lower()
+    known=b'[sudo] password for ' in clean or b'[sudo: authenticate] password:' in clean
+    return known and clean.endswith(b':') and not echo_enabled
 
 
 def sudo_evidence(profile):
@@ -66,14 +74,14 @@ def sudo_evidence(profile):
                         raise
                     if not chunk:break
                     output.extend(chunk)
-                    if password and not sent and b'[sudo] password for ' in output and output.rstrip().endswith(b':'):
+                    if password and not sent and sudo_password_prompt(output,bool(termios.tcgetattr(master)[3]&termios.ECHO)):
                         os.write(master,password.encode()+b'\n');sent=True
                 elif process.poll() is not None:break
             status=process.wait(timeout=10)
             assert secret.encode() not in output,'sudo-fixture-secret-echoed'
             assert status==1 and b'intent-approval-mismatch' in output,'sudo-approval-refusal-not-reached'
             if password:assert sent,'sudo-password-prompt-missing'
-            else:assert b'[sudo] password for ' not in output,'sudo-nopasswd-prompt-unexpected'
+            else:assert not any(marker in output.lower() for marker in (b'[sudo] password for ',b'[sudo: authenticate] password:')),'sudo-nopasswd-prompt-unexpected'
         except Exception as error:
             failure=str(error) if isinstance(error,AssertionError) else type(error).__name__
             evidence['status']='FAIL'

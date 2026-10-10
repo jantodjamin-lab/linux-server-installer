@@ -15,6 +15,19 @@ guest=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guest)
 
 
+class SudoPromptSafety(unittest.TestCase):
+    def test_documented_classic_and_rs_prompts_with_echo_disabled(self):
+        self.assertTrue(guest.sudo_password_prompt(b'[sudo] password for fixture: ',False))
+        self.assertTrue(guest.sudo_password_prompt(b'[sudo: authenticate] Password: ',False))
+        self.assertTrue(guest.sudo_password_prompt(b'\x1b[1m[sudo: authenticate] Password:\x1b[0m ',False))
+
+    def test_echo_enabled_or_unknown_prompt_never_receives_secret(self):
+        self.assertFalse(guest.sudo_password_prompt(b'[sudo] password for fixture: ',True))
+        self.assertFalse(guest.sudo_password_prompt(b'[sudo: authenticate] Password: ',True))
+        self.assertFalse(guest.sudo_password_prompt(b'Password: ',False))
+        self.assertFalse(guest.sudo_password_prompt(b'[sudo: authenticate] Password: \nother output',False))
+
+
 class ColdBootEvidence(unittest.TestCase):
     def setUp(self):
         self.temporary=tempfile.TemporaryDirectory(prefix='installer-coldboot-')
