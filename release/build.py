@@ -14,7 +14,7 @@ VERSION = '1.0.0-rc.5'
 
 def public_files():
     names = ['install.sh', 'README.md', 'SECURITY.md', 'CHANGELOG.md', 'profiles/profiles.json',
-             'profiles/npm-pins.json', 'docs/GUIDE.md', 'docs/SOURCES.md', 'docs/ARCHITECTURE.md',
+             'profiles/npm-pins.json', 'docs/GUIDE.md', 'docs/SOURCES.md', 'docs/ARCHITECTURE.md', 'docs/CI_VALIDATION.md',
              'tests/fixtures/ubuntu-archive-2018.b64', 'release/build.py']
     names += [str(p.relative_to(BASE)) for folder, pattern in [('lib','*.py'), ('tests','test_*.py'), ('tools','*.py'), ('tools','*.sh')]
               for p in sorted((BASE/folder).glob(pattern))]

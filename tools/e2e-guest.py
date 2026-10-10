@@ -22,6 +22,7 @@ from apply import request
 from core import inventory, plan
 from cli import main
 from journal import Journal
+from errors import redact
 
 
 def checked(argv):return subprocess.run(argv,check=True,text=True,capture_output=True).stdout
@@ -37,10 +38,14 @@ def sudo_evidence(profile):
     policy=Path('/etc/sudoers.d/rc5-e2e-password')
     policy.write_text(account+' ALL=(root) ALL\n');policy.chmod(0o440)
     checked(['/usr/sbin/visudo','-cf',str(policy)])
-    evidence={}
-    for user,password in [('operator',None),(account,secret)]:
-        master,slave=pty.openpty()
-        output=bytearray();sent=False
+    evidence={'status':'PASS','cases':{}}
+    for user,password in [('rc5-operator',None),(account,secret)]:
+        mode='password' if password else 'nopasswd'
+        found=subprocess.run(['/usr/bin/getent','passwd',user],check=False,capture_output=True,text=True)
+        if found.returncode!=0:
+            evidence['status']='FAIL';evidence['cases'][mode]={'status':'FAIL','code':'fixture-user-missing'}
+            continue
+        master,slave=pty.openpty();output=bytearray();sent=False;process=None;status=None;failure=None
         def session():
             os.setsid();fcntl.ioctl(0,termios.TIOCSCTTY,0)
         argv=['/usr/sbin/runuser','-u',user,'--','sh',str(BASE/'install.sh'),
@@ -48,12 +53,12 @@ def sudo_evidence(profile):
               '--snapshot-confirmed','--allow-unvalidated','--allow-mirror',
               'https://mirror.transip.net/ubuntu/ubuntu/','--approval','INSTALL:'+'0'*64,'--json']
         if profile!='DB':argv.append('--development')
-        process=subprocess.Popen(argv,stdin=slave,stdout=slave,stderr=slave,preexec_fn=session,close_fds=True)
-        os.close(slave)
-        deadline=time.monotonic()+90
         try:
+            process=subprocess.Popen(argv,stdin=slave,stdout=slave,stderr=slave,preexec_fn=session,close_fds=True)
+            os.close(slave);slave=None
+            deadline=time.monotonic()+90
             while True:
-                if time.monotonic()>deadline:raise AssertionError('sudo fixture timeout')
+                if time.monotonic()>deadline:raise AssertionError('sudo-fixture-timeout')
                 if select.select([master],[],[],0.1)[0]:
                     try:chunk=os.read(master,4096)
                     except OSError as error:
@@ -65,15 +70,36 @@ def sudo_evidence(profile):
                         os.write(master,password.encode()+b'\n');sent=True
                 elif process.poll() is not None:break
             status=process.wait(timeout=10)
-            assert secret.encode() not in output,'sudo fixture secret echoed'
-            assert status==1 and b'intent-approval-mismatch' in output,'sudo did not reach root approval refusal'
-            if password:assert sent,'password authentication was not requested'
-            else:assert b'[sudo] password for ' not in output,'NOPASSWD requested a password'
-            evidence['password' if password else 'nopasswd']='PASS-authenticated-approval-refused-no-effects'
+            assert secret.encode() not in output,'sudo-fixture-secret-echoed'
+            assert status==1 and b'intent-approval-mismatch' in output,'sudo-approval-refusal-not-reached'
+            if password:assert sent,'sudo-password-prompt-missing'
+            else:assert b'[sudo] password for ' not in output,'sudo-nopasswd-prompt-unexpected'
+        except Exception as error:
+            failure=str(error) if isinstance(error,AssertionError) else type(error).__name__
+            evidence['status']='FAIL'
         finally:
-            if process.poll() is None:process.kill();process.wait()
+            if process is not None and process.poll() is None:process.kill();process.wait()
             os.close(master)
+            if slave is not None:os.close(slave)
+        # Redact exact fixture secret BEFORE bounded general redaction. No raw
+        # PTY output or password is placed in JSON, console or artifacts.
+        safe=redact(output.decode(errors='replace').replace(secret,'[REDACTED]'))
+        path=Path('/e2e-artifacts')/('sudo-'+mode+'.log');path.write_text(safe);path.chmod(0o600)
+        evidence['cases'][mode]={'status':'FAIL' if failure else 'PASS','code':failure or 'authenticated-approval-refused-no-effects',
+                                 'exit_code':status,'password_prompt_seen':sent,'diagnostic':path.name}
+    Path('/e2e-artifacts/sudo-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
     return evidence
+
+
+def collect_fixture_evidence():
+    if os.geteuid()!=0 or not Path('/etc/universal-installer-disposable-e2e').is_file():
+        raise SystemExit('Refusing: disposable fixture required')
+    directory=Path('/e2e-artifacts')
+    for name in ('cloud-init.log','cloud-init-output.log'):
+        source=Path('/var/log')/name
+        if source.is_file():(directory/name).write_text(redact(source.read_text(errors='replace')))
+    status=subprocess.run(['/usr/bin/cloud-init','status','--long'],capture_output=True,text=True,check=False)
+    (directory/'cloud-init-status.log').write_text(redact(status.stdout+'\n'+status.stderr))
 
 
 def args_for(profile):
@@ -98,23 +124,43 @@ def invoke(profile, kill_event=0, review=False, contention=False):
 def fault_child(event, contention, argv):
     # Test-only deterministic fault hook; NEVER shipped as a target CLI flag or
     # activated through a production environment variable.
-    original=Journal.event;counter=0;locker=None;started=None
+    original=Journal.event;counter=0;locker=None;started=None;unattended=None;dryrun_output=None
     def fault(journal,*args,**kwargs):
-        nonlocal counter,locker,started
+        nonlocal counter,locker,started,unattended,dryrun_output
         original(journal,*args,**kwargs);counter+=1
         if event and counter==event:os.kill(os.getpid(),signal.SIGKILL)
         if contention and args==('STARTED','packages'):
             blocker="import fcntl,time;f=open('/var/lib/dpkg/lock-frontend','a');fcntl.lockf(f,fcntl.LOCK_EX);time.sleep(25)"
-            locker=subprocess.Popen(['/usr/bin/unattended-upgrade','-c',blocker],executable='/usr/bin/python3')
+            locker=subprocess.Popen(['/usr/bin/python3','-c',blocker])
             time.sleep(1);started=time.monotonic()
+            # Real utility dry-run, concurrently with an explicitly injected
+            # frontend-lock fixture. Never disguise the fixture as a daemon.
+            dryrun_output=open('/e2e-artifacts/unattended-dry-run.log','w')
+            os.chmod('/e2e-artifacts/unattended-dry-run.log',0o600)
+            unattended=subprocess.Popen(['/usr/bin/unattended-upgrade','--dry-run','--debug'],stdout=dryrun_output,stderr=subprocess.STDOUT)
+            evidence={'lock_fixture':'python-fcntl-real-dpkg-frontend-lock','dry_run_command':['/usr/bin/unattended-upgrade','--dry-run','--debug'],
+                      'dry_run_pid':unattended.pid,'simultaneous_fixture_lock':locker.poll() is None}
+            Path('/e2e-artifacts/contention-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
         if contention and args==('VALIDATED','packages'):
             assert time.monotonic()-started>=23,'APT did not wait on dpkg contention'
             locker.wait(timeout=60)
+            try:dry_run_exit=unattended.wait(timeout=90)
+            except subprocess.TimeoutExpired:
+                unattended.terminate();unattended.wait(timeout=15)
+                raise AssertionError('Actual unattended-upgrade dry-run exceeded bound')
+            finally:dryrun_output.close()
+            evidence=json.loads(Path('/e2e-artifacts/contention-evidence.json').read_text())
+            raw=Path('/e2e-artifacts/unattended-dry-run.log').read_text()
+            Path('/e2e-artifacts/unattended-dry-run.log').write_text(redact(raw))
+            assert dry_run_exit==0 or (dry_run_exit==1 and 'lock' in raw.lower()),'Unattended dry-run failed for an unexpected reason'
+            evidence.update({'apt_step_elapsed_seconds':time.monotonic()-started,'dry_run_exit_code':dry_run_exit,
+                             'dry_run_result':'completed' if dry_run_exit==0 else 'expected-lock-refusal'})
+            Path('/e2e-artifacts/contention-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
     Journal.event=fault
     sys.argv=['installer',*argv];raise SystemExit(main())
 
 
-def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False):
+def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False, low_memory=False):
     if os.geteuid()!=0 or not Path('/etc/universal-installer-disposable-e2e').is_file() or not Path('/run/systemd/system').is_dir():
         raise SystemExit('Refusing: disposable VM marker/root/systemd required')
     identity=platform.freedesktop_os_release()
@@ -139,6 +185,7 @@ def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False):
     assert audit_snapshot()==unchanged,'sudo approval refusal changed target metadata'
     initial=inventory(allow_mirrors=['https://mirror.transip.net/ubuntu/ubuntu/'])
     admission=plan(profile,initial)
+    if low_memory:assert initial['ram_mib']>=843,'low-memory fixture has insufficient usable RAM'
     if minimum_vm:
         ram=initial['ram_mib']
         if ram<843:
@@ -174,6 +221,8 @@ def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False):
             first=second
         assert first.returncode==0,first.stdout+first.stderr
         assert json.loads(first.stdout)['status']=='PASS',first.stdout
+        # Capture ONLY first-run events; repeated apply adds another COMPLETE.
+        events=sum(len(json.loads(p.read_text())['state']['events']) for p in Path('/var/lib/universal-linux-installer').rglob('journal.json'))
         repeated=invoke(profile)
         assert repeated.returncode==0,repeated.stdout+repeated.stderr
         assert json.loads(repeated.stdout)['status']=='PASS',repeated.stdout
@@ -201,9 +250,8 @@ def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False):
         assert total>=4*2**30
         if swap_gib:assert '/e2e-existing-swap' in active_swap(checked)
         if swap_gib>=4:assert not Path('/var/lib/universal-linux-installer/swap/swapfile').exists()
-        events=sum(len(json.loads(p.read_text())['state']['events']) for p in Path('/var/lib/universal-linux-installer').rglob('journal.json'))
-        result={'journal_events':events,'layer':3,'profile':profile,'status':'PASS','swap_initial_gib':swap_gib,'fault_event':fault,
-                'contention':contention,'live_validated':False,'owner_acceptance_required':True,'mirror_fixture':'owner-supplied-fields-not-captured-file','development':profile!='DB','sudo':sudo_result,'os_release':identity}
+        result={'journal_events':events,'layer':3,'profile':profile,'status':sudo_result['status'],'installation_status':'PASS','swap_initial_gib':swap_gib,'fault_event':fault,
+                'contention':contention,'contention_fixture':'injected-real-frontend-lock+actual-unattended-dry-run' if contention else None,'live_validated':False,'owner_acceptance_required':True,'mirror_fixture':'owner-supplied-fields-not-captured-file','development':profile!='DB','sudo':sudo_result,'os_release':identity,'ram_mib':initial['ram_mib'],'low_memory':low_memory}
         Path('/var/lib/universal-linux-installer/e2e-result.json').write_text(json.dumps(result,indent=2)+'\n')
         print(json.dumps(result),flush=True)
     finally:
@@ -211,8 +259,10 @@ def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False):
 
 
 if __name__=='__main__':
+    if len(sys.argv)>1 and sys.argv[1]=='--collect-fixture-evidence':
+        collect_fixture_evidence();raise SystemExit(0)
     if len(sys.argv)>1 and sys.argv[1]=='--fault-child':fault_child(int(sys.argv[2]),bool(int(sys.argv[3])),sys.argv[4:])
     parser=argparse.ArgumentParser();parser.add_argument('--profile',required=True,choices=('APP','DB','APP+DB'))
     parser.add_argument('--swap-gib',type=int,default=0,choices=(0,2,4));parser.add_argument('--fault-event',type=int,default=0)
-    parser.add_argument('--minimum-vm',action='store_true');parser.add_argument('--contention',action='store_true');args=parser.parse_args()
-    run(args.profile,args.swap_gib,args.fault_event,args.contention,args.minimum_vm)
+    parser.add_argument('--minimum-vm',action='store_true');parser.add_argument('--low-memory',action='store_true');parser.add_argument('--contention',action='store_true');args=parser.parse_args()
+    run(args.profile,args.swap_gib,args.fault_event,args.contention,args.minimum_vm,args.low_memory)

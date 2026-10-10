@@ -19,7 +19,10 @@ separate affirmative answers; the final typed confirmation has no default.
 `--resolve --out DIR --refresh-metadata` is a separate explicit refresh-only
 authorization. Its saved plan still needs full INSTALL approval for execution.
 Saved plans are exact, integrity-bound and expire after two hours. Schema 4 is
-refused. Limit overflow stops before package installation, swap or service changes;
+refused. A fully completed checkpoint may be revalidated after expiry only when
+its root ownership, private modes, digest, exact binding and full completed-step
+set match. This permits no new effects; partial installations still expire.
+Limit overflow stops before package installation, swap or service changes;
 authorized metadata refresh and an owned universe extension may already exist.
 
 Only supported resolute suites and the installed Ubuntu archive keyring are

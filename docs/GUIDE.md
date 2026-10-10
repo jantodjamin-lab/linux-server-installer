@@ -121,7 +121,8 @@ Layer 2: `docker run --rm -v "$PWD:/work" -w /work ubuntu:26.04 sh tools/contain
 signed metadata and resolvers for every profile plus Ubuntu npm9 npm-ci. Container
 resource/systemd admission is synthetic; no service/swap e2e claim follows.
 Layer 3: `sh tools/e2e-vm.sh APP` (local KVM or QEMU TCG; prerequisites are checked without host installation).
-See docs/ARCHITECTURE.md for scenarios and retained artifacts. Neither unit nor
+See docs/ARCHITECTURE.md for scenarios and retained artifacts, and
+docs/CI_VALIDATION.md for security/fault matrix dispatch instructions. Neither unit nor
 container PASS changes NOT LIVE VALIDATED. Owner acceptance remains required.
 
 Generate public npm locks in development/CI with explicit versions:

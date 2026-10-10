@@ -195,6 +195,11 @@ def run_apply(args, observed, *, root='/', transport=None):
     if root==Path('/') and os.geteuid()!=0: raise ValueError('root-required-use-interactive-sudo')
     audit=plan(args.profile,observed)
     if audit['failures']: raise ValueError('preflight-failed')
+    for check in audit['checks']:
+        if check['status']=='WARN':
+            print('WARN '+check['id']+': '+check['detail'],file=sys.stderr)
+    for warning in audit['warnings']:
+        if 'insufficient for reliable' in warning:print('WARN '+warning,file=sys.stderr)
     owned=fresh_target(root,dict(observed,profile=args.profile))
     intent=request(args,observed,'resolve' if args.resolve else 'apply',root)
     if owned and args.apply and not (Path(args.state_dir)/intent['request_id']/'plan.json').is_file():raise ValueError('ownership-binding')
@@ -238,4 +243,8 @@ def run_apply(args, observed, *, root='/', transport=None):
         from journal import _run_workflow
         report=_run_workflow(workflow,runner,directory/'checkpoints',args.recovery_reviewed)
         report.update(profile=args.profile,directory=str(directory))
+        report['admission_checks']=audit['checks']
+        if report['status']=='PASS':
+            report['checks']=[{'id':step['id'],'status':'PASS','detail':'validated'} for step in workflow['steps']]
+            report['checks'] += [check for check in audit['checks'] if check['status']=='WARN']
         return report
