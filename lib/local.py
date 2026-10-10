@@ -31,6 +31,8 @@ host all all ::1/128 scram-sha-256
 SERVICE_BLOCK = '#!/bin/sh\n# universal-linux-installer: block package service starts until validation\nexit 101\n'
 APT_SECURITY = ['-o', 'APT::Get::AllowUnauthenticated=false', '-o', 'Acquire::AllowInsecureRepositories=false',
                 '-o', 'Acquire::AllowDowngradeToInsecureRepositories=false', '-o', 'APT::Get::allow-Downgrades=false',
+                '-o', 'APT::Update::Error-Mode=any', '-o', 'Acquire::Check-Valid-Until=true', '-o', 'Acquire::Check-Date=true',
+                '-o', 'Acquire::AllowWeakRepositories=false',
                 '-o', 'Dpkg::Options::=--force-confold']
 
 
@@ -52,8 +54,10 @@ def validate_sources(root):
     candidates = [root/'etc/apt/sources.list'] + sorted((root/'etc/apt/sources.list.d').glob('*'))
     count = 0
     for path in candidates:
-        if not path.exists(): continue
         if path.is_symlink(): raise ValueError('apt-source-symlink')
+        if not path.exists(): continue
+        for parent in path.parents:
+            if parent.is_symlink(): raise ValueError('apt-source-parent-symlink')
         text = path.read_text()
         if path.suffix not in ('.list', '.sources') and path.name != 'sources.list':
             continue
@@ -65,29 +69,29 @@ def validate_sources(root):
                 for line in paragraph.splitlines():
                     if line.startswith('#') or not line.strip(): continue
                     if ':' not in line or line.startswith((' ', '\t')): raise ValueError('apt-source-format')
-                    key, value = line.split(':', 1); fields[key.lower()] = value.strip()
+                    key, value = line.split(':', 1)
+                    if key.lower() in fields: raise ValueError('apt-source-duplicate')
+                    fields[key.lower()] = value.strip()
                 if not fields: continue
+                if not set(fields) <= {'types','uris','suites','components','signed-by','architectures','enabled','trusted','allow-insecure','check-valid-until'}:
+                    raise ValueError('apt-source-unreviewed-option')
                 if fields.get('trusted', 'no').lower() != 'no' or fields.get('allow-insecure', 'no').lower() != 'no' or fields.get('check-valid-until', 'yes').lower() != 'yes':
                     raise ValueError('insecure-apt-source')
                 if fields.get('enabled', 'yes') != 'yes': raise ValueError('disabled-source-review')
-                if fields.get('signed-by') != '/usr/share/keyrings/ubuntu-archive-keyring.gpg':
+                if fields.get('signed-by') not in ('/usr/share/keyrings/ubuntu-archive-keyring.gpg', '/usr/share/keyrings/ubuntu-archive-keyring.gpg F6ECB3762474EDA9D21B7022871920D1991BC93C'):
                     raise ValueError('apt-source-keyring')
                 for uri in fields.get('uris', '').split():
                     approve_uri(uri); count += 1
                 if not fields.get('suites') or any(s not in ('resolute', 'resolute-updates', 'resolute-security') for s in fields['suites'].split()):
                     raise ValueError('apt-suite')
+                if not fields.get('components') or not set(fields['components'].split()) <= {'main','universe','restricted','multiverse'}: raise ValueError('apt-components')
                 if fields.get('types') != 'deb': raise ValueError('apt-source-type')
         else:
             for line in text.splitlines():
                 line = line.strip()
                 if not line or line.startswith('#'): continue
-                # Restrictive legacy syntax; options require operator conversion to deb822.
-                fields = line.split()
-                if len(fields) < 4 or fields[0] != 'deb' or '[' in line:
-                    raise ValueError('apt-source-format')
-                approve_uri(fields[1]); count += 1
-                if fields[2] not in ('resolute', 'resolute-updates', 'resolute-security'):
-                    raise ValueError('apt-suite')
+                # Legacy global key trust is refused: convert to explicit Signed-By.
+                raise ValueError('explicit-signed-by-required')
     if not count: raise ValueError('no-approved-apt-sources')
     key = root/'usr/share/keyrings/ubuntu-archive-keyring.gpg'
     if key.is_symlink() or not key.is_file(): raise ValueError('ubuntu-keyring-required')
@@ -147,6 +151,10 @@ class LocalRunner:
             if os.geteuid() != 0: raise ValueError('root-required')
             identity = hashlib.sha256(Path('/etc/machine-id').read_bytes()).hexdigest()
             if workflow['target'] != identity: raise ValueError('target-binding')
+        from swap import SwapManager
+        from core import PROFILES
+        self.swap = SwapManager(self.root, self.call, PROFILES[workflow['profile']]['disk_gib']*2**30)
+        self.swap_report = None
         self.owned = False
         if self.marker.exists():
             if self.marker.is_symlink(): raise ValueError('ownership-symlink')
@@ -181,7 +189,8 @@ class LocalRunner:
         if path.exists():
             if path.read_text() != content: raise ValueError('existing-config-conflict')
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
+        for parent in reversed(path.parents):
+            if not parent.exists(): parent.mkdir(mode=0o755)
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, mode)
         with os.fdopen(fd, 'w') as stream:
             stream.write(content); stream.flush(); os.fsync(stream.fileno())
@@ -190,13 +199,29 @@ class LocalRunner:
         kind = step['kind']
         if kind == 'sources':
             validate_sources(self.root)
+            from node import verify_key, universe_present, universe_source, SOURCE
+            verify_key(self.root, self.call)
+            if self.workflow['profile'] != 'DB' and not universe_present(self.root):
+                # Partial universe configuration needs review, avoiding duplicate targets.
+                if any('universe' in p.read_text() for p in (self.root/'etc/apt/sources.list.d').glob('*.sources')):
+                    raise ValueError('partial-universe-review')
+                self.write_new(SOURCE, universe_source(self.workflow['arch']))
+                validate_sources(self.root)
             self.write_new('var/lib/universal-linux-installer/ownership.json', json.dumps({'plan_id': self.workflow['plan_id']}), 0o600)
             self.owned = True
             self.write_new('usr/sbin/policy-rc.d', SERVICE_BLOCK, 0o755)
+        elif kind == 'swap':
+            self.swap_report = self.swap.apply()
         elif kind == 'apt-refresh':
+            from node import verify_key
+            validate_sources(self.root); verify_key(self.root, self.call)
             self.call(['/usr/bin/apt-get', *APT_SECURITY, 'update'])
+            from node import verify_releases
+            verify_releases(self.root,self.call)
         elif kind == 'apt':
             validate_sources(self.root)
+            from node import verify_key, package_available, verify_releases
+            verify_key(self.root, self.call); verify_releases(self.root,self.call); package_available(self.call, step['pins'])
             if (self.root/'usr/sbin/policy-rc.d').read_text() != SERVICE_BLOCK:
                 raise ValueError('service-start-guard')
             pins = [name+'='+version for name, version in sorted(step['pins'].items())]
@@ -260,7 +285,10 @@ class LocalRunner:
 
     def validate(self, step):
         kind = step['kind']
-        if kind == 'sources': return validate_sources(self.root)
+        if kind == 'sources':
+            from node import verify_key, universe_present
+            return validate_sources(self.root) and verify_key(self.root,self.call) and (self.workflow['profile']=='DB' or universe_present(self.root))
+        if kind == 'swap': return self.swap.validate()
         if kind == 'apt-refresh': return True  # completed command evidence, no cached freshness claim
         if kind == 'apt': return all(self.package_version(n) == v for n, v in step['pins'].items())
         if kind == 'npm':
@@ -297,6 +325,7 @@ class LocalRunner:
                 if item['kind'] not in ('validate', 'apt-refresh') and not self.validate(item): return False
             if step['profile'] != 'DB':
                 if not self.call(['/usr/bin/dotnet', '--list-sdks']).startswith('10.'): return False
-                if not self.call(['/usr/bin/node', '--version']).startswith(('v22.', 'v24.')): return False
+                from node import check_runtime
+                if not check_runtime(self.call,self.workflow['lock']['apt']): return False
             return True
         return False

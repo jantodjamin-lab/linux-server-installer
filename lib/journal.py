@@ -111,4 +111,6 @@ def _run_workflow(workflow, runner, directory, recovery_review=False):
             journal.event('VALIDATED', step['id'])
         return {'status': 'WARN' if runner.reboot_required() else 'PASS',
                 'reason': 'manual-reboot-required' if runner.reboot_required() else 'validators-passed',
-                'plan_id': workflow['plan_id'], 'live_validated': False}
+                'plan_id': workflow['plan_id'], 'live_validated': False,
+                'swap': getattr(runner, 'swap_report', None) or (runner.swap.report() if hasattr(runner,'swap') else None),
+                'warnings': workflow.get('warnings', [])}

@@ -33,6 +33,15 @@ class Transport:
         self.calls.append((argv,cwd))
         if self.fail: raise RuntimeError('PRIVATE_TOKEN')
         executable=Path(argv[0]).name
+        if executable == 'gpg':
+            return 'pub:-:4096:1:KEY:0:0::::::\nfpr:::::::::F6ECB3762474EDA9D21B7022871920D1991BC93C:\n'
+        if executable == 'gpgv':
+            return '[GNUPG:] VALIDSIG F6ECB3762474EDA9D21B7022871920D1991BC93C 2026-01-01 0 0 4 0 1 10 01 F6ECB3762474EDA9D21B7022871920D1991BC93C\n'
+        if executable == 'swapon':
+            return json.dumps({'swapdevices':[{'name':'/existing-swap','size':4*2**30}]})
+        if executable == 'apt-cache':
+            name, version = argv[-1].split('=',1)
+            return 'Package: '+name+'\nVersion: '+version+'\nFilename: pool/main/fixture.deb\nSHA256: '+'a'*64+'\n'
         if executable == 'apt-get' and 'install' in argv and '-s' in argv:
             pins = [a.split('=',1) for a in argv if '=' in a and not a.startswith(('APT::','Acquire::','Dpkg::'))]
             return ''.join('Inst '+name+' ('+version+' Ubuntu [amd64])\n' for name,version in pins if self.versions.get(name) != version)
@@ -56,6 +65,7 @@ class Transport:
         if executable=='ng': return 'Angular CLI: '+self.workflow['lock']['npm']['@angular/cli']['version']+'\n'
         if executable=='codex': return 'codex-cli '+self.workflow['lock']['npm']['@openai/codex']['version']+'\n'
         if executable=='npm':
+            if '--version' in argv: return '9.2.0\n'
             data=json.loads((Path(cwd)/'package.json').read_text())
             for name,version in data['dependencies'].items():
                 path=Path(cwd)/'node_modules'/name/'package.json'; path.parent.mkdir(parents=True); path.write_text(json.dumps({'version':version}))
@@ -79,7 +89,7 @@ class LocalIntegrationTests(unittest.TestCase):
                 self.assertEqual(install_count,sum('install' in argv and '-s' not in argv for argv,_ in transport.calls))
                 for argv,_ in transport.calls:
                     self.assertNotIn('ssh',argv); self.assertNotIn('sudo',argv)
-                    if Path(argv[0]).name=='npm': self.assertIn('--ignore-scripts',argv)
+                    if Path(argv[0]).name=='npm' and 'ci' in argv: self.assertIn('--ignore-scripts',argv)
     def test_optional_codex_and_explicit_updates(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)/'target'; root.mkdir(); sources(root)
@@ -99,7 +109,12 @@ class LocalIntegrationTests(unittest.TestCase):
     def test_failure_keeps_service_guard_and_private_journal(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)/'target'; root.mkdir(); sources(root)
-            workflow=build_workflow('DB',fixture(),lock_for('DB')); transport=Transport(root,workflow); transport.fail=True
+            workflow=build_workflow('DB',fixture(),lock_for('DB')); transport=Transport(root,workflow)
+            original = transport.__call__
+            def fail_refresh(argv,cwd=None):
+                if Path(argv[0]).name == 'apt-get': raise RuntimeError('PRIVATE_TOKEN')
+                return original(argv,cwd)
+            transport = fail_refresh
             runner=LocalRunner(workflow,'INSTALL:'+workflow['plan_id'],True,True,root,transport)
             with self.assertRaises(RuntimeError): run_workflow(workflow,runner,Path(tmp)/'private')
             self.assertEqual((root/'usr/sbin/policy-rc.d').read_text(),SERVICE_BLOCK)

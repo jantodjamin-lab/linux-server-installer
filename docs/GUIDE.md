@@ -6,7 +6,7 @@ Use an unprivileged shell for audit. Save JSON in a new private file. A failing
 inventory blocks installation. Candidate OS: Ubuntu 26.04, amd64/arm64; live
 support on either architecture remains unverified. Minimum 1 CPU, 843 MiB RAM
 and APP/DB/APP+DB 10/20/30 GiB free disk; these are test minima, not capacity
-assurance. The installer does not add swap.
+assurance. RC3 adds only the swap deficit to 4 GiB on ext4/XFS during explicitly approved execution. Free disk reserves must remain after allocation.
 
 A lock is schema 2 with apt, npm and updates maps. Apt names map to exact Debian
 versions. Include every profile package, ca-certificates, and the full new or
@@ -21,7 +21,7 @@ APP only), each with exact version and SHA256 of its package-lock.json. Provide
 bundle/angular and optional bundle/codex directories, each containing a
 package.json with only that exact direct dependency and a v3 package-lock.json
 with registry.npmjs.org HTTPS URLs and SHA512 integrity for dependencies.
-Angular 20 requires Node 22.12+ or major 24 in this candidate.
+Angular 20 uses the explicitly selected Ubuntu Node 22.12+ LTS provider; major 24 is not a fallback.
 Do not embed credentials, scripts, local paths, git URLs or mutable tags.
 
 ```json

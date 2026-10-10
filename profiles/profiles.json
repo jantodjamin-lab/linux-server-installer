@@ -9,6 +9,18 @@
       "npm",
       "nginx",
       "curl"
+    ],
+    "minimum": {
+      "cpu": 1,
+      "ram_mib": 843
+    },
+    "recommended": {
+      "cpu": 2,
+      "ram_mib": 2048
+    },
+    "swap_gib": 4,
+    "services": [
+      "nginx"
     ]
   },
   "APP+DB": {
@@ -22,6 +34,19 @@
       "nginx",
       "postgresql-18",
       "curl"
+    ],
+    "minimum": {
+      "cpu": 1,
+      "ram_mib": 843
+    },
+    "recommended": {
+      "cpu": 4,
+      "ram_mib": 4096
+    },
+    "swap_gib": 4,
+    "services": [
+      "nginx",
+      "postgresql"
     ]
   },
   "DB": {
@@ -30,6 +55,18 @@
       "git",
       "python3",
       "postgresql-18"
+    ],
+    "minimum": {
+      "cpu": 1,
+      "ram_mib": 843
+    },
+    "recommended": {
+      "cpu": 2,
+      "ram_mib": 2048
+    },
+    "swap_gib": 4,
+    "services": [
+      "postgresql"
     ]
   }
 }

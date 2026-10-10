@@ -25,7 +25,7 @@ def read_json(path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Universal Linux Installer 1.0.0-rc.2 — NIET LIVE GEVALIDEERD')
+    parser = argparse.ArgumentParser(description='Universal Linux Installer 1.0.0-rc.3 — NIET LIVE GEVALIDEERD')
     parser.add_argument('--profile', choices=PROFILES, required=True)
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--audit', action='store_true')

@@ -14,7 +14,7 @@ from cli import read_json
 
 
 def lock_for(profile):
-    versions = {'dotnet-sdk-10.0': '10.0.100-0ubuntu1', 'nodejs': '22.12.0-0ubuntu1', 'postgresql-18': '18.0-1'}
+    versions = {'dotnet-sdk-10.0': '10.0.100-0ubuntu1', 'npm':'9.2.0~ds3-1', 'nodejs': '22.12.0-0ubuntu1', 'postgresql-18': '18.0-1'}
     apt = {name: versions.get(name, '1.0-1') for name in [*PROFILES[profile]['packages'], 'ca-certificates']}
     return {'schema': 2, 'apt': apt, 'updates': {}, 'npm': {} if profile == 'DB' else
             {'@angular/cli': {'version': '20.3.0', 'lock_sha256': 'a'*64}}}
@@ -23,7 +23,10 @@ def lock_for(profile):
 def sources(root):
     path = root/'etc/apt/sources.list.d/ubuntu.sources'; path.parent.mkdir(parents=True)
     path.write_text('Types: deb\nURIs: http://archive.ubuntu.com/ubuntu/\nSuites: resolute resolute-updates resolute-security\nComponents: main universe\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n')
-    key = root/'usr/share/keyrings/ubuntu-archive-keyring.gpg'; key.parent.mkdir(parents=True); key.write_bytes(b'fixture-key')
+    lists = root/'var/lib/apt/lists'; lists.mkdir(parents=True)
+    for suite in ('resolute','resolute-updates','resolute-security'):
+        item=lists/('archive.ubuntu.com_ubuntu_dists_'+suite+'_InRelease'); item.write_bytes(b'fixture-metadata'); item.chmod(0o644)
+    key = root/'usr/share/keyrings/ubuntu-archive-keyring.gpg'; key.parent.mkdir(parents=True); key.write_bytes(b'fixture-key'); key.chmod(0o644)
 
 
 class Runner:
@@ -116,7 +119,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_node24_and_listener_conflict(self):
         lock=lock_for('APP'); lock['apt']['nodejs']='24.0.0-1'
-        self.assertEqual(build_workflow('APP',fixture(),lock)['status'],'WARN')
+        with self.assertRaises(ValueError): build_workflow('APP',fixture(),lock)
         observed=fixture(); observed['tcp_ports']=[8080]
         with self.assertRaises(ValueError): build_workflow('APP',observed,lock)
 

@@ -36,3 +36,8 @@ This installer is not a sandbox against a compromised administrator/host.
 No secrets, private history, environment credentials or target identity records
 are included in the public release. Report security issues privately to the
 repository owner; do not post credentials or internal host details in issues.
+
+RC3 verifies Canonical key fingerprints and fresh InRelease signatures before
+package operations. Swap is an explicitly planned effect only: fixed owned file,
+private durable checkpoints, permissions/filesystem/disk checks, preserved fstab
+and independent active-capacity validation. Audit/dry-run never runs these effects.
