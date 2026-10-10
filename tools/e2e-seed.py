@@ -23,7 +23,7 @@ with tarfile.open(fileobj=buffer,mode='w:gz') as archive:
 for i,scenario in enumerate(scenarios):
     case=work/('case-'+str(i+(100 if os.environ.get('RC5_E2E_ONLY_FAULTS')=='1' else 0)).zfill(3));case.mkdir();(case/'artifacts').mkdir()
     (case/'memory').write_text(str(scenario['memory'])+'\n')
-    extra=(' --contention' if scenario['contention'] else '')
+    extra=(' --contention' if scenario['contention'] else '')+(' --minimum-vm' if scenario['memory']==843 else '')
     command='python3 -B /opt/rc5-test/tools/e2e-guest.py --profile '+profile+' --swap-gib '+str(scenario['swap'])+' --fault-event '+str(scenario['fault'])+extra
     script='''#!/bin/sh
 set +e

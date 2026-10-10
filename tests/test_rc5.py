@@ -306,6 +306,8 @@ class CapturedProviderTests(unittest.TestCase):
         directory=BASE/'tests/fixtures/transip-26.04'
         captured=list((directory/'etc/apt/sources.list.d').glob('*.sources'))
         if not captured:self.skipTest('actual owner-supplied TransIP source files absent; no exact reproduction claimed')
+        self.assertTrue((directory/'lists-full-iso.txt').is_file(),'captured InRelease dates missing')
+        self.assertTrue(list((directory/'etc/cloud/templates').glob('sources.list.*.tmpl')),'captured cloud-init template missing')
         with tempfile.TemporaryDirectory() as tmp:
             import shutil
             root=Path(tmp);sources(root)

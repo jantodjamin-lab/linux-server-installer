@@ -7,8 +7,8 @@ PUBLIC_FAILURE_CODES = frozenset(['source-policy-changed','angular-major', 'angu
 
 def redact(value):
     value = str(value)
-    value = re.sub(r'(?i)(https?://)[^\s/@]+(?::[^\s/@]*)?@', r'\1[REDACTED]@', value)
-    value = re.sub(r'(?im)(authorization|proxy-authorization)\s*:[^\r\n]*', r'\1: [REDACTED]', value)
+    value = re.sub(r'(?i)(https?://)[^\s/]*@', r'\1[REDACTED]@', value)
+    value = re.sub(r'(?im)(authorization|proxy-authorization)\s*:[^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*', r'\1: [REDACTED]', value)
     value = re.sub(r'(?i)\b(?:bearer\s+\S+|(?:token|password|secret|api[_-]?key)\s*[=:]\s*[^\s&]+)', '[REDACTED]', value)
     value = re.sub(r'\b(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|AKIA[A-Z0-9]{16})\b', '[REDACTED]', value)
     value = re.sub(r'\b[A-Za-z0-9_+/=-]{32,}\b', '[REDACTED]', value)

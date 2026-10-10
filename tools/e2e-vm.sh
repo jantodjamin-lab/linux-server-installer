@@ -9,6 +9,8 @@ done
 [ -r /dev/kvm ] && [ -w /dev/kvm ] || { echo 'SKIP layer 3: usable KVM absent' >&2; exit 77; }
 : "${RC5_E2E_IMAGE:?Set path to a locally verified Ubuntu 26.04 amd64 cloud image}"
 : "${RC5_E2E_IMAGE_SHA256:?Set independently trusted cloud-image SHA256}"
+RC5_E2E_IMAGE=$(python3 -B -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve(strict=True))' "$RC5_E2E_IMAGE")
+export RC5_E2E_IMAGE
 printf '%s  %s\n' "$RC5_E2E_IMAGE_SHA256" "$RC5_E2E_IMAGE" | sha256sum -c -
 base=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 work=$(mktemp -d "${TMPDIR:-/tmp}/rc5-vm.XXXXXXXX")

@@ -65,4 +65,10 @@ def main():
     output.write_text(json.dumps({'layer':2,'status':'PASS','live_validated':False,'profiles':reports},indent=2)+'\n')
 
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    from errors import CommandError, failure_metadata
+    try:main()
+    except CommandError as error:
+        print(json.dumps(failure_metadata('layer2',error)),file=sys.stderr)
+        print(error.stderr_tail,file=sys.stderr)
+        raise SystemExit(1) from None

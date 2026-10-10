@@ -121,7 +121,7 @@ def authorized_resolution(args, observed, intent, directory, call, root='/'):
                         except CommandError as error:
                             if error.exit_code!=2: raise
                             print('WARN cloud-init completed with recoverable errors; inspect cloud-init separately',file=sys.stderr)
-                    output=call(['/usr/bin/pgrep','-f','^/usr/bin/(unattended-upgrade|unattended-upgrades)']) if (Path(root)/'usr/bin/pgrep').is_file() else ''
+                    output=call(['/usr/bin/pgrep','-f','(^|[[:space:]])(/usr/bin/)?unattended-upgrades?([[:space:]]|$)']) if (Path(root)/'usr/bin/pgrep').is_file() else ''
                     if output: print('WARN unattended-upgrades active; waiting for dpkg lock up to 600 seconds',file=sys.stderr)
                 elif stage=='sources':
                     current=[e for e in read_sources(root,args.allow_mirror)['entries'] if e['source_file']!='universal-node-universe.sources']
@@ -200,6 +200,12 @@ def run_apply(args, observed, *, root='/', transport=None):
             validate_plan_age(workflow)
             if workflow.get('authorization')!=intent: raise ValueError('saved-plan-options')
             if digest({k:v for k,v in workflow.items() if k!='plan_id'})!=workflow['plan_id']:raise ValueError('saved-plan-integrity')
+            with Journal(directory/'preparation',intent['request_id']) as preparation:
+                pending=preparation.state['pending']
+                if pending:
+                    if pending=='sources' and not args.recovery_reviewed:raise ValueError('uncertain-effects-review-required')
+                    preparation.state['pending']=None
+                    preparation.event('RECOVERY_REVIEWED' if pending=='sources' else 'AUTO_CLEARED',pending)
         else: workflow=authorized_resolution(args,observed,intent,directory,tolerant,root)
         print(resolution_summary(workflow),file=sys.stderr)
         if args.resolve:return {'status':'WARN','profile':args.profile,'plan_id':workflow['plan_id'],'code':'resolved-review-required','directory':str(directory),'live_validated':False}

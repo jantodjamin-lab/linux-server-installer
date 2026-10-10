@@ -75,3 +75,12 @@ verified cloud image and RC5_E2E_IMAGE_SHA256 to its trusted SHA256. The harness
 refuses missing tools/KVM/image/hash rather than downloading/executing an unverified
 image. It never claims live_validated; owner acceptance is a separate decision.
 Production/real server installation remains outside scope.
+
+Cloud-init installs only guest test prerequisites before the acceptance service;
+these fixture-setup operations are separate from installer authorization.
+At QEMU -m843, reserved memory can make actual MemTotal <843MiB: that case proves
+correct read-only refusal and reports apply_executed=false, not a swap/apply PASS.
+The exact 843MiB admission boundary is also covered by unit fixtures. VM listeners
+must preserve the initial non-loopback set (including unchanged cloud-image SSH);
+new service listeners are loopback only. The harness never connects to SSH.
+Fault event count is taken from the baseline's actual journal, not guessed.

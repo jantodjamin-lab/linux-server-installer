@@ -12,7 +12,7 @@ import time
 BASE=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(BASE/'lib'))
 from apply import request
-from core import inventory
+from core import inventory, plan
 from cli import main
 from journal import Journal
 
@@ -56,9 +56,27 @@ def fault_child(event, contention, argv):
     sys.argv=['installer',*argv];raise SystemExit(main())
 
 
-def run(profile, swap_gib=0, fault=0, contention=False):
+def run(profile, swap_gib=0, fault=0, contention=False, minimum_vm=False):
     if os.geteuid()!=0 or not Path('/etc/universal-installer-disposable-e2e').is_file() or not Path('/run/systemd/system').is_dir():
         raise SystemExit('Refusing: disposable VM marker/root/systemd required')
+    before_sockets=checked(['/usr/bin/ss','-H','-ltn'])
+    def external(raw):
+        return {line.split()[3] for line in raw.splitlines() if not line.split()[3].startswith(('127.','[::1]:','::1:'))}
+    initial=inventory()
+    admission=plan(profile,initial)
+    if minimum_vm:
+        ram=initial['ram_mib']
+        if ram<843:
+            # QEMU -m843 includes reserved/kernel memory; physical MemTotal may
+            # be below admission. Prove refusal, never falsify the observation.
+            assert 'ram_mib' in admission['failures']
+            audit=subprocess.run(['sh',str(BASE/'install.sh'),'--profile',profile,'--audit','--json'],capture_output=True,text=True)
+            assert audit.returncode==1 and 'ram_mib' in json.loads(audit.stdout)['failures']
+            directory=Path('/var/lib/universal-linux-installer');directory.mkdir(mode=0o700)
+            result={'layer':3,'status':'PASS','scenario':'minimum-VM-physical-RAM-refusal','ram_mib':ram,'live_validated':False,'apply_executed':False}
+            (directory/'e2e-result.json').write_text(json.dumps(result,indent=2)+'\n')
+            return
+        assert next(c for c in admission['checks'] if c['id']=='ram_mib')['status']=='WARN'
     if swap_gib:
         path='/e2e-existing-swap'
         checked(['/usr/bin/dd','if=/dev/zero','of='+path,'bs=1M','count='+str(swap_gib*1024),'status=none'])
@@ -86,6 +104,7 @@ def run(profile, swap_gib=0, fault=0, contention=False):
         assert json.loads(repeated.stdout)['status']=='PASS',repeated.stdout
         assert not Path('/usr/sbin/policy-rc.d').exists()
         sockets=checked(['/usr/bin/ss','-H','-ltn'])
+        assert external(sockets)==external(before_sockets),'new listener outside loopback'
         for line in sockets.splitlines():
             address=line.split()[3]
             if address.rsplit(':',1)[-1] in ('8080','5432'):
@@ -119,5 +138,5 @@ if __name__=='__main__':
     if len(sys.argv)>1 and sys.argv[1]=='--fault-child':fault_child(int(sys.argv[2]),bool(int(sys.argv[3])),sys.argv[4:])
     parser=argparse.ArgumentParser();parser.add_argument('--profile',required=True,choices=('APP','DB','APP+DB'))
     parser.add_argument('--swap-gib',type=int,default=0,choices=(0,2,4));parser.add_argument('--fault-event',type=int,default=0)
-    parser.add_argument('--contention',action='store_true');args=parser.parse_args()
-    run(args.profile,args.swap_gib,args.fault_event,args.contention)
+    parser.add_argument('--minimum-vm',action='store_true');parser.add_argument('--contention',action='store_true');args=parser.parse_args()
+    run(args.profile,args.swap_gib,args.fault_event,args.contention,args.minimum_vm)
