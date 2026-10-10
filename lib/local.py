@@ -1,7 +1,7 @@
 """Local Ubuntu adapter. Constructing it needs explicit target-bound consent.
 
 Tests inject a command transport and filesystem root; development never invokes
-live package commands. No SSH, sudo, credential loading or remote provisioning.
+live package commands. No SSH, credential loading or remote provisioning; sudo is CLI-only and interactive.
 """
 import hashlib
 import json
@@ -49,62 +49,7 @@ def command(argv, cwd=None):
     return completed.stdout
 
 
-def validate_sources(root):
-    root = Path(root)
-    candidates = [root/'etc/apt/sources.list'] + sorted((root/'etc/apt/sources.list.d').glob('*'))
-    count = 0
-    for path in candidates:
-        if path.is_symlink(): raise ValueError('apt-source-symlink')
-        if not path.exists(): continue
-        for parent in path.parents:
-            if parent.is_symlink(): raise ValueError('apt-source-parent-symlink')
-        text = path.read_text()
-        if path.suffix not in ('.list', '.sources') and path.name != 'sources.list':
-            continue
-        for dangerous in ('trusted=yes', 'allow-insecure=yes', 'Trusted: yes', 'Check-Valid-Until: no'):
-            if dangerous in text: raise ValueError('insecure-apt-source')
-        if path.suffix == '.sources':
-            for paragraph in re.split(r'\n\s*\n', text.strip()):
-                fields = {}
-                for line in paragraph.splitlines():
-                    if line.startswith('#') or not line.strip(): continue
-                    if ':' not in line or line.startswith((' ', '\t')): raise ValueError('apt-source-format')
-                    key, value = line.split(':', 1)
-                    if key.lower() in fields: raise ValueError('apt-source-duplicate')
-                    fields[key.lower()] = value.strip()
-                if not fields: continue
-                if not set(fields) <= {'types','uris','suites','components','signed-by','architectures','enabled','trusted','allow-insecure','check-valid-until'}:
-                    raise ValueError('apt-source-unreviewed-option')
-                if fields.get('trusted', 'no').lower() != 'no' or fields.get('allow-insecure', 'no').lower() != 'no' or fields.get('check-valid-until', 'yes').lower() != 'yes':
-                    raise ValueError('insecure-apt-source')
-                if fields.get('enabled', 'yes') != 'yes': raise ValueError('disabled-source-review')
-                if fields.get('signed-by') not in ('/usr/share/keyrings/ubuntu-archive-keyring.gpg', '/usr/share/keyrings/ubuntu-archive-keyring.gpg F6ECB3762474EDA9D21B7022871920D1991BC93C'):
-                    raise ValueError('apt-source-keyring')
-                for uri in fields.get('uris', '').split():
-                    approve_uri(uri); count += 1
-                if not fields.get('suites') or any(s not in ('resolute', 'resolute-updates', 'resolute-security') for s in fields['suites'].split()):
-                    raise ValueError('apt-suite')
-                if not fields.get('components') or not set(fields['components'].split()) <= {'main','universe','restricted','multiverse'}: raise ValueError('apt-components')
-                if fields.get('types') != 'deb': raise ValueError('apt-source-type')
-        else:
-            for line in text.splitlines():
-                line = line.strip()
-                if not line or line.startswith('#'): continue
-                # Legacy global key trust is refused: convert to explicit Signed-By.
-                raise ValueError('explicit-signed-by-required')
-    if not count: raise ValueError('no-approved-apt-sources')
-    key = root/'usr/share/keyrings/ubuntu-archive-keyring.gpg'
-    if key.is_symlink() or not key.is_file(): raise ValueError('ubuntu-keyring-required')
-    return True
-
-
-def approve_uri(uri):
-    parts = urlsplit(uri)
-    if parts.scheme not in ('http', 'https') or parts.hostname not in ('archive.ubuntu.com', 'security.ubuntu.com', 'ports.ubuntu.com') or parts.username or parts.password or parts.query or parts.fragment or parts.port:
-        raise ValueError('unapproved-apt-source')
-    if parts.path.rstrip('/') not in ('/ubuntu', '/ubuntu-ports'):
-        raise ValueError('apt-source-path')
-    # HTTP Ubuntu mirrors are authenticated by signed apt metadata, not transport.
+from sources import validate_sources, approve_uri
 
 
 def check_npm_lock(directory, name, pin):
@@ -201,15 +146,16 @@ class LocalRunner:
             validate_sources(self.root)
             from node import verify_key, universe_present, universe_source, SOURCE
             verify_key(self.root, self.call)
-            if self.workflow['profile'] != 'DB' and not universe_present(self.root):
-                # Partial universe configuration needs review, avoiding duplicate targets.
-                if any('universe' in p.read_text() for p in (self.root/'etc/apt/sources.list.d').glob('*.sources')):
-                    raise ValueError('partial-universe-review')
-                self.write_new(SOURCE, universe_source(self.workflow['arch']))
+            if self.workflow['profile'] != 'DB' and not universe_present(self.root,self.workflow['arch']):
+                from sources import BASE_SUITES, universe_coverage
+                missing=BASE_SUITES-universe_coverage(self.root,self.workflow['arch'])
+                self.write_new(SOURCE, universe_source(self.workflow['arch'],missing,self.root))
                 validate_sources(self.root)
             self.write_new('var/lib/universal-linux-installer/ownership.json', json.dumps({'plan_id': self.workflow['plan_id']}), 0o600)
             self.owned = True
             self.write_new('usr/sbin/policy-rc.d', SERVICE_BLOCK, 0o755)
+        elif kind == 'apt-preflight':
+            self.package_preflight(step['pins'])
         elif kind == 'swap':
             self.swap_report = self.swap.apply()
         elif kind == 'apt-refresh':
@@ -224,20 +170,8 @@ class LocalRunner:
             verify_key(self.root, self.call); verify_releases(self.root,self.call); package_available(self.call, step['pins'])
             if (self.root/'usr/sbin/policy-rc.d').read_text() != SERVICE_BLOCK:
                 raise ValueError('service-start-guard')
+            self.package_preflight(step['pins'])
             pins = [name+'='+version for name, version in sorted(step['pins'].items())]
-            simulation = self.call(['/usr/bin/apt-get', *APT_SECURITY, '--no-remove', '--no-install-recommends', '-s', 'install', *pins])
-            changes = {}
-            for line in simulation.splitlines():
-                if line.startswith('Remv '): raise ValueError('package-removal-refused')
-                if line.startswith('Inst '):
-                    match = re.match(r'Inst ([a-z0-9+.-]+)(?: \[[^]]+\])? \(([^ ]+)', line)
-                    if not match: raise ValueError('apt-simulation-format')
-                    name, version = match.groups()
-                    if step['pins'].get(name) != version: raise ValueError('unpinned-dependency')
-                    changes[name] = version
-            for name, version in step['pins'].items():
-                if self.package_version(name) != version and changes.get(name) != version:
-                    raise ValueError('apt-simulation-incomplete')
             self.call(['/usr/bin/apt-get', *APT_SECURITY, '--no-remove', '--no-install-recommends', '-y', 'install', *pins])
         elif kind == 'app-config':
             # Only a fresh, package-created service is allowed by constructor.
@@ -277,6 +211,25 @@ class LocalRunner:
         else:
             raise ValueError('unknown-step')
 
+    def package_preflight(self, pins):
+        from node import verify_key, verify_releases, package_available
+        validate_sources(self.root); verify_key(self.root,self.call)
+        verify_releases(self.root,self.call); package_available(self.call,pins)
+        argv_pins = [name+'='+version for name, version in sorted(pins.items())]
+        simulation = self.call(['/usr/bin/apt-get', *APT_SECURITY, '--no-remove', '--no-install-recommends', '-s', 'install', *argv_pins])
+        changes = {}
+        for line in simulation.splitlines():
+            if line.startswith('Remv '): raise ValueError('package-removal-refused')
+            if line.startswith('Inst '):
+                match = re.match(r'Inst ([a-z0-9+.-]+)(?: \[[^]]+\])? \(([^ ]+)', line)
+                if not match: raise ValueError('apt-simulation-format')
+                name, version = match.groups()
+                if pins.get(name) != version: raise ValueError('unpinned-dependency')
+                changes[name] = version
+        for name, version in pins.items():
+            if self.package_version(name) != version and changes.get(name) != version:
+                raise ValueError('apt-simulation-incomplete')
+
     def package_version(self, name):
         try:
             return self.call(['/usr/bin/dpkg-query', '-W', '-f=${Version}', name]).strip()
@@ -287,8 +240,10 @@ class LocalRunner:
         kind = step['kind']
         if kind == 'sources':
             from node import verify_key, universe_present
-            return validate_sources(self.root) and verify_key(self.root,self.call) and (self.workflow['profile']=='DB' or universe_present(self.root))
+            return validate_sources(self.root) and verify_key(self.root,self.call) and (self.workflow['profile']=='DB' or universe_present(self.root,self.workflow['arch']))
         if kind == 'swap': return self.swap.validate()
+        if kind == 'apt-preflight':
+            self.package_preflight(step['pins']); return True
         if kind == 'apt-refresh': return True  # completed command evidence, no cached freshness claim
         if kind == 'apt': return all(self.package_version(n) == v for n, v in step['pins'].items())
         if kind == 'npm':

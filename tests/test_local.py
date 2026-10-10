@@ -38,7 +38,7 @@ class Transport:
         if executable == 'gpgv':
             return '[GNUPG:] VALIDSIG F6ECB3762474EDA9D21B7022871920D1991BC93C 2026-01-01 0 0 4 0 1 10 01 F6ECB3762474EDA9D21B7022871920D1991BC93C\n'
         if executable == 'swapon':
-            return json.dumps({'swapdevices':[{'name':'/existing-swap','size':4*2**30}]})
+            return '/existing-swap '+str(4*2**30)+'\n'
         if executable == 'apt-cache':
             name, version = argv[-1].split('=',1)
             return 'Package: '+name+'\nVersion: '+version+'\nFilename: pool/main/fixture.deb\nSHA256: '+'a'*64+'\n'

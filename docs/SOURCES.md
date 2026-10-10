@@ -1,6 +1,6 @@
 # Primary sources
 
-Reviewed during rc.3 development. Documentation support does not establish live
+Reviewed during rc.4 development. Documentation support does not establish live
 installation acceptance. Exact target locks and disposable-VM validation remain
 required. No copied vendor installer or mutable curl-to-shell script is used.
 
@@ -21,3 +21,13 @@ RC3 primary references (reviewed 2026-10-10):
 - [Canonical key fingerprints](https://documentation.ubuntu.com/security/software-integrity/image-verification/): installed keyring trust and official fingerprints.
 - [Ubuntu archive integrity](https://documentation.ubuntu.com/security/software-integrity/archive-verification/): signed package checksum chain.
 - [swapon manual](https://man7.org/linux/man-pages/man8/swapon.8.html): swap-file hole/CoW limitations and XFS support.
+
+RC4 command-format references (reviewed 2026-10-10):
+
+- [Ubuntu swapon](https://manpages.ubuntu.com/manpages/resolute/man8/swapon.8.html): supported raw byte inventory; empty output represents zero active swap.
+- [Ubuntu sources.list](https://manpages.ubuntu.com/manpages/resolute/man5/sources.list.5.html): deb822 continuation fields, explicit Signed-By and consistent URI/suite bindings.
+- [GnuPG configuration](https://gnupg.org/documentation/manuals/gnupg/GPG-Configuration-Options.html): explicit keyring and read-only listing options.
+
+The catalog lists Node 22.22.1 and npm 9.2.0 for resolute. RC4 requires an exact
+target-specific package lock and successful signed APT dependency simulation;
+these catalog entries do not prove every dependency is currently downloadable.

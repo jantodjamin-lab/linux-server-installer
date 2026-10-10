@@ -33,7 +33,7 @@ class SwapTransport:
         name = Path(argv[0]).name
         if self.fail == name and '--show' not in argv: raise RuntimeError('simulated-interruption')
         if name == 'swapon' and '--show' in argv:
-            return json.dumps({'swapdevices':[{'name':k,'size':v} for k,v in self.active.items()]})
+            return ''.join(k+' '+str(v)+'\n' for k,v in self.active.items())
         if name == 'findmnt': return json.dumps({'filesystems':[{'fstype':'ext4','options':'rw,relatime'}]})
         if name == 'blkid':
             if argv[-1] not in self.formatted: raise RuntimeError('unformatted')
@@ -165,7 +165,7 @@ class RC3SourceTests(unittest.TestCase):
             runner=LocalRunner(w,'INSTALL:'+w['plan_id'],True,True,root,tr,bundle)
             runner.apply(w['steps'][0]);self.assertTrue(runner.validate(w['steps'][0]))
             generated=root/'etc/apt/sources.list.d/universal-node-universe.sources'
-            self.assertIn(ARCHIVE_KEY,generated.read_text()); self.assertTrue(validate_sources(root))
+            self.assertIn('Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg',generated.read_text()); self.assertTrue(validate_sources(root))
             original=generated.read_bytes();runner.apply(w['steps'][0]);self.assertEqual(original,generated.read_bytes())
     def test_invalid_signature_stops_before_packages_swap(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -208,7 +208,7 @@ class RC3CapacityTests(unittest.TestCase):
         for profile in PROFILES:
             for mode in ('--audit','--dry-run'):
                 out=io.StringIO()
-                with patch('sys.argv',['installer','--profile',profile,mode]), patch('cli.inventory',return_value=fixture()), patch('cli.LocalRunner',side_effect=AssertionError('execution during audit')), patch('subprocess.run',side_effect=AssertionError('system command')), contextlib.redirect_stdout(out):
+                with patch('sys.argv',['installer','--profile',profile,mode,'--json']), patch('cli.inventory',return_value=fixture()), patch('cli.LocalRunner',side_effect=AssertionError('execution during audit')), patch('subprocess.run',side_effect=AssertionError('system command')), contextlib.redirect_stdout(out):
                     self.assertEqual(main(),0)
                 report=json.loads(out.getvalue());self.assertFalse(report['installation_authorized'])
                 self.assertEqual(report['mode'],'dry-run')

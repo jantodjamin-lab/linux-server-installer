@@ -26,11 +26,9 @@ def validate_lock(lock, profile, development):
     if profile != 'DB':
         if not apt['dotnet-sdk-10.0'].split(':')[-1].startswith('10.'):
             raise ValueError('dotnet-major')
-        node = re.match(r'(\d+)\.(\d+)\.(\d+)', apt['nodejs'].split(':')[-1])
-        if not node or not (int(node[1]) == 22 and tuple(map(int, node.groups())) >= (22, 12, 0) ):
+        from node import compatible_node_npm
+        if not compatible_node_npm(apt):
             raise ValueError('node-angular-compatibility')
-        if not re.match(r'9\.\d+\.\d+', apt['npm'].split(':')[-1]):
-            raise ValueError('npm-major')
     if profile != 'APP' and not apt['postgresql-18'].split(':')[-1].startswith('18.'):
         raise ValueError('postgresql-major')
     npm_required = set() if profile == 'DB' else {'@angular/cli'}
@@ -67,10 +65,11 @@ def build_workflow(profile, observed, lock, development=False, system_updates=Fa
         current = observed.get('packages', {}).get(name)
         if current and current != version and name not in lock['updates']:
             raise ValueError('existing-version-conflict')
-    steps = [{'id': 'sources', 'kind': 'sources'}, {'id': 'apt-refresh', 'kind': 'apt-refresh'}]
+    steps = [{'id':'sources','kind':'sources'}, {'id':'apt-refresh','kind':'apt-refresh'},
+             {'id':'package-preflight','kind':'apt-preflight','pins':{**lock['apt'],**lock['updates']}},
+             {'id':'swap','kind':'swap','reserve_bytes':PROFILES[profile]['disk_gib']*2**30}]
     if lock['updates']:
-        steps.append({'id': 'system-updates', 'kind': 'apt', 'pins': lock['updates']})
-    steps.append({'id':'swap','kind':'swap','reserve_bytes':PROFILES[profile]['disk_gib']*2**30})
+        steps.append({'id':'system-updates','kind':'apt','pins':lock['updates']})
     steps.append({'id': 'packages', 'kind': 'apt', 'pins': lock['apt']})
     if profile != 'DB':
         steps.append({'id': 'app-config', 'kind': 'app-config'})
@@ -79,7 +78,7 @@ def build_workflow(profile, observed, lock, development=False, system_updates=Fa
     if profile != 'APP':
         steps.append({'id': 'db-config', 'kind': 'db-config'})
     steps.append({'id': 'validate', 'kind': 'validate', 'profile': profile, 'development': development})
-    body = {'schema': 3, 'profile': profile, 'development': development, 'system_updates': system_updates,
+    body = {'schema': 4, 'profile': profile, 'development': development, 'system_updates': system_updates,
             'lock': lock, 'steps': steps, 'target': observed.get('target', 'unverified'),
             'status': 'WARN', 'live_validated': False,
             'effects': ['explicit Ubuntu universe Node 22 LTS/npm 9 source', 'signed Ubuntu apt refresh', 'deficit-only persistent swap to 4 GiB', 'exact-version package installs',

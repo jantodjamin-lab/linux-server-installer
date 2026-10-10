@@ -16,15 +16,21 @@ TARGET = 4 * GIB
 
 
 def active_swap(call):
-    data = json.loads(call(['/usr/sbin/swapon', '--show', '--bytes', '--json', '--output', 'NAME,SIZE']))
-    rows = data.get('swapdevices', [])
-    if not isinstance(rows, list): raise ValueError('swap-inventory')
+    """Supported util-linux raw output; successful empty output means zero swap."""
+    raw = call(['/usr/sbin/swapon', '--show', '--bytes', '--noheadings', '--raw', '--output', 'NAME,SIZE'])
+    if not isinstance(raw, str): raise ValueError('swap-inventory-format')
     result = {}
-    for row in rows:
-        name, size = row['name'], row['size']
-        if not isinstance(name, str) or not name.startswith('/') or name in result or type(size) is not int or size <= 0:
-            raise ValueError('swap-inventory')
-        result[name] = size
+    for line in raw.splitlines():
+        if not line.strip(): continue
+        fields = line.split()
+        if len(fields) != 2: raise ValueError('swap-inventory-format')
+        name, size = fields
+        # libsmartcols raw output escapes unsafe path bytes as hex escapes.
+        import re
+        name = re.sub(r'\\x([0-9A-Fa-f]{2})', lambda m: chr(int(m[1],16)), name)
+        if not name.startswith('/') or any(c in name for c in ('\x00','\n','\r')) or name in result or not size.isascii() or not size.isdecimal() or int(size) <= 0:
+            raise ValueError('swap-inventory-format')
+        result[name] = int(size)
     return result
 
 

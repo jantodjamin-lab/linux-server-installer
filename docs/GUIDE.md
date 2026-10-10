@@ -2,11 +2,11 @@
 
 ## Audit and plan
 
-Use an unprivileged shell for audit. Save JSON in a new private file. A failing
+Use an unprivileged shell for audit. Use --json to save details in a new private file. A failing
 inventory blocks installation. Candidate OS: Ubuntu 26.04, amd64/arm64; live
 support on either architecture remains unverified. Minimum 1 CPU, 843 MiB RAM
 and APP/DB/APP+DB 10/20/30 GiB free disk; these are test minima, not capacity
-assurance. RC3 adds only the swap deficit to 4 GiB on ext4/XFS during explicitly approved execution. Free disk reserves must remain after allocation.
+assurance. Execution adds only the swap deficit to 4 GiB on ext4/XFS during explicitly approved execution. Free disk reserves must remain after allocation.
 
 A lock is schema 2 with apt, npm and updates maps. Apt names map to exact Debian
 versions. Include every profile package, ca-certificates, and the full new or
@@ -56,8 +56,11 @@ sh install.sh --profile APP --plan reviewed-plan.json --execute \
   --snapshot-confirmed --allow-unvalidated
 ```
 
-Run manually as root using the operator's normal privilege policy; the installer
-never invokes sudo. The example's hash placeholder is not valid approval.
+Run manually as root using the operator's normal privilege policy, or add --sudo
+to the explicitly approved --execute command from an interactive terminal.
+Sudo performs authorization itself; no password is read, stored or piped by the
+installer. No askpass or stdin-password mode is allowed. Audit never invokes sudo.
+RC4 plans use schema 4; regenerate and review older plans before execution. The example's hash placeholder is not valid approval.
 No automatic reboot is performed. Reboot-required stops return WARN. Review and
 reboot manually, then resume the same plan. A failed/pending step requires
 --recovery-reviewed after effects have been checked. A process lock never grants

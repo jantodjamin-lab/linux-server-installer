@@ -9,12 +9,12 @@ import tarfile
 
 BASE = Path(__file__).resolve().parents[1]
 OUT = BASE / 'release'
-VERSION = '1.0.0-rc.3'
+VERSION = '1.0.0-rc.4'
 
 
 def public_files():
     names = ['install.sh', 'README.md', 'SECURITY.md', 'profiles/profiles.json',
-             'docs/GUIDE.md', 'docs/SOURCES.md', 'docs/ACCEPTANCE.md', 'docs/RC3.md', 'release/build.py']
+             'docs/GUIDE.md', 'docs/SOURCES.md', 'docs/ACCEPTANCE.md', 'docs/RC3.md', 'docs/RC4.md', 'tests/fixtures/ubuntu-archive-2018.b64', 'release/build.py']
     names += [str(p.relative_to(BASE)) for folder, pattern in [('lib','*.py'), ('tests','test_*.py')]
               for p in sorted((BASE/folder).glob(pattern))]
     result = sorted(BASE/name for name in names)

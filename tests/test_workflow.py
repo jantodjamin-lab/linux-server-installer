@@ -26,6 +26,7 @@ def sources(root):
     lists = root/'var/lib/apt/lists'; lists.mkdir(parents=True)
     for suite in ('resolute','resolute-updates','resolute-security'):
         item=lists/('archive.ubuntu.com_ubuntu_dists_'+suite+'_InRelease'); item.write_bytes(b'fixture-metadata'); item.chmod(0o644)
+    path.chmod(0o644)
     key = root/'usr/share/keyrings/ubuntu-archive-keyring.gpg'; key.parent.mkdir(parents=True); key.write_bytes(b'fixture-key'); key.chmod(0o644)
 
 
