@@ -17,7 +17,7 @@ TARGET = 4 * GIB
 
 def active_swap(call):
     """Supported util-linux raw output; successful empty output means zero swap."""
-    raw = call(['/usr/sbin/swapon', '--show', '--bytes', '--noheadings', '--raw', '--output', 'NAME,SIZE'])
+    raw = call(['/usr/sbin/swapon', '--show=NAME,SIZE', '--bytes', '--noheadings', '--raw'])
     if not isinstance(raw, str): raise ValueError('swap-inventory-format')
     result = {}
     for line in raw.splitlines():

@@ -361,3 +361,15 @@ class AuthorizationSourceBindingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'source-policy-changed'):runner.apply(w['steps'][0])
             self.assertFalse((root/'var/lib/universal-linux-installer/ownership.json').exists())
             self.assertFalse(tr.calls)
+
+
+class SwapColumnSelectionTests(unittest.TestCase):
+    def test_show_column_list_does_not_append_default_columns(self):
+        from swap import active_swap
+        calls=[]
+        def call(argv):
+            calls.append(argv)
+            self.assertIn('--show=NAME,SIZE',argv)
+            self.assertNotIn('--output',argv)
+            return '/swapfile 3221221376\n'
+        self.assertEqual(active_swap(call),{'/swapfile':3221221376})

@@ -96,7 +96,7 @@ class RC4SwapRegressionTests(unittest.TestCase):
         with self.assertRaises(PermissionError):active_swap(denied)
     def test_real_util_linux_option_compatibility_only_help(self):
         if not shutil.which('swapon'):self.skipTest('swapon unavailable')
-        good=subprocess.run(['/usr/sbin/swapon','--show','--bytes','--noheadings','--raw','--output','NAME,SIZE','--help'],capture_output=True,timeout=10)
+        good=subprocess.run(['/usr/sbin/swapon','--show=NAME,SIZE','--bytes','--noheadings','--raw','--help'],capture_output=True,timeout=10)
         self.assertEqual(good.returncode,0)
         bad=subprocess.run(['/usr/sbin/swapon','--json','--help'],capture_output=True,timeout=10)
         self.assertNotEqual(bad.returncode,0)

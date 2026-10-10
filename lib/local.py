@@ -57,7 +57,12 @@ def command(argv, cwd=None, allow_proxy_env=False):
     return completed.stdout
 
 
-from sources import validate_sources as validate_sources, approve_uri as approve_uri
+from sources import validate_sources as validate_sources
+
+def approve_uri(uri, allow_mirrors=()):
+    # Retain the public RC4 helper API; all policy lives in sources.py.
+    from sources import approve_uri as policy
+    return policy(uri,allow_mirrors)
 
 
 def check_npm_lock(directory, name, pin):

@@ -31,8 +31,8 @@ class SwapTransport:
     def __call__(self, argv, cwd=None):
         self.calls.append(argv)
         name = Path(argv[0]).name
-        if self.fail == name and '--show' not in argv: raise RuntimeError('simulated-interruption')
-        if name == 'swapon' and '--show' in argv:
+        if self.fail == name and not any(a.startswith('--show') for a in argv): raise RuntimeError('simulated-interruption')
+        if name == 'swapon' and any(a.startswith('--show') for a in argv):
             return ''.join(k+' '+str(v)+'\n' for k,v in self.active.items())
         if name == 'findmnt': return json.dumps({'filesystems':[{'fstype':'ext4','options':'rw,relatime'}]})
         if name == 'blkid':
@@ -63,8 +63,8 @@ class RC3SwapTests(unittest.TestCase):
                 m,tr = manager(tmp,existing); before=m.fstab.read_bytes()
                 result=m.apply(); self.assertGreaterEqual(result['active_bytes'],4*MIB)
                 self.assertEqual(result['existing_bytes'],existing)
-                calls=sum(Path(x[0]).name in ('mkswap','swapon') and '--show' not in x for x in tr.calls)
-                m.apply(); self.assertEqual(calls,sum(Path(x[0]).name in ('mkswap','swapon') and '--show' not in x for x in tr.calls))
+                calls=sum(Path(x[0]).name in ('mkswap','swapon') and not any(a.startswith('--show') for a in x) for x in tr.calls)
+                m.apply(); self.assertEqual(calls,sum(Path(x[0]).name in ('mkswap','swapon') and not any(a.startswith('--show') for a in x) for x in tr.calls))
                 self.assertTrue(m.validate())
                 if existing >= 4*MIB:
                     self.assertFalse(m.path.exists()); self.assertEqual(before,m.fstab.read_bytes())
