@@ -122,7 +122,7 @@ def _run_workflow(workflow, runner, directory, recovery_review=False):
                 if step.get('effect', 'effectful') in ('readonly', 'idempotent'):
                     journal.state['pending'] = None
                     journal.event('AUTO_CLEARED', step['id'])
-                raise WorkflowError(metadata, diagnostic_path) from None
+                raise WorkflowError(metadata, diagnostic_path,journal.root) from None
             journal.state['done'].append(step['id'])
             journal.state['pending'] = None
             journal.event('VALIDATED', step['id'])

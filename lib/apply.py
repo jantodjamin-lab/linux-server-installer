@@ -123,7 +123,10 @@ def authorized_resolution(args, observed, intent, directory, call, root='/'):
                             print('WARN cloud-init completed with recoverable errors; inspect cloud-init separately',file=sys.stderr)
                     output=call(['/usr/bin/pgrep','-f','^/usr/bin/(unattended-upgrade|unattended-upgrades)']) if (Path(root)/'usr/bin/pgrep').is_file() else ''
                     if output: print('WARN unattended-upgrades active; waiting for dpkg lock up to 600 seconds',file=sys.stderr)
-                elif stage=='sources': prepare_sources(args.profile,observed['arch'],args.allow_mirror,call,root)
+                elif stage=='sources':
+                    current=[e for e in read_sources(root,args.allow_mirror)['entries'] if e['source_file']!='universal-node-universe.sources']
+                    if current!=intent['source_policy']:raise ValueError('source-policy-changed')
+                    prepare_sources(args.profile,observed['arch'],args.allow_mirror,call,root)
                 else:
                     workflow=resolve(args.profile,observed,call,root=root,development=args.development,
                                      system_updates=args.system_updates,allow_mirrors=args.allow_mirror,
@@ -144,7 +147,7 @@ def authorized_resolution(args, observed, intent, directory, call, root='/'):
                 if stage!='sources':
                     journal.state['pending']=None;journal.event('AUTO_CLEARED',stage)
                 private_write(directory,'SUMMARY.txt',request_summary(intent,observed)+'\nFAIL '+stage+': '+metadata['code']+'\nSee preparation/journal.json and private diagnostics.\n')
-                raise WorkflowError(metadata,diagnostic_path) from None
+                raise WorkflowError(metadata,diagnostic_path,directory) from None
             if stage not in journal.state['done']:journal.state['done'].append(stage)
             journal.state['pending']=None;journal.event('VALIDATED',stage)
         return workflow

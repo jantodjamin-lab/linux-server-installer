@@ -57,7 +57,7 @@ def command(argv, cwd=None, allow_proxy_env=False):
     return completed.stdout
 
 
-from sources import validate_sources, approve_uri as approve_uri
+from sources import validate_sources as validate_sources, approve_uri as approve_uri
 
 
 def check_npm_lock(directory, name, pin):
@@ -136,6 +136,16 @@ class LocalRunner:
             return command(argv, cwd=cwd, allow_proxy_env=self.workflow.get('allow_proxy_env', False))
         return self.transport(argv, cwd=cwd)
 
+    def check_sources(self):
+        from sources import read_sources
+        mirrors=self.workflow.get('allow_mirrors',())
+        data=read_sources(self.root,mirrors)
+        authorized=self.workflow.get('authorization')
+        if authorized is not None:
+            base=[e for e in data['entries'] if e['source_file']!='universal-node-universe.sources']
+            if base!=authorized['source_policy']:raise ValueError('source-policy-changed')
+        return True
+
     def reboot_required(self):
         return (self.root/'var/run/reboot-required').exists()
 
@@ -155,14 +165,14 @@ class LocalRunner:
     def apply(self, step):
         kind = step['kind']
         if kind == 'sources':
-            validate_sources(self.root,self.workflow.get('allow_mirrors',()))
+            self.check_sources()
             from node import verify_key, universe_present, universe_source, SOURCE
             verify_key(self.root, self.call)
             if self.workflow['profile'] != 'DB' and not universe_present(self.root,self.workflow['arch'],self.workflow.get('allow_mirrors',())):
                 from sources import BASE_SUITES, universe_coverage
                 missing=BASE_SUITES-universe_coverage(self.root,self.workflow['arch'],self.workflow.get('allow_mirrors',()))
                 self.write_new(SOURCE, universe_source(self.workflow['arch'],missing,self.root,self.workflow.get('allow_mirrors',())))
-                validate_sources(self.root,self.workflow.get('allow_mirrors',()))
+                self.check_sources()
             self.write_new('var/lib/universal-linux-installer/ownership.json', json.dumps({'plan_id': self.workflow['plan_id']}), 0o600)
             self.owned = True
             self.write_new('usr/sbin/policy-rc.d', SERVICE_BLOCK, 0o755)
@@ -172,12 +182,12 @@ class LocalRunner:
             self.swap_report = self.swap.apply()
         elif kind == 'apt-refresh':
             from node import verify_key
-            validate_sources(self.root,self.workflow.get('allow_mirrors',())); verify_key(self.root, self.call)
+            self.check_sources(); verify_key(self.root, self.call)
             self.call(['/usr/bin/apt-get', *APT_SECURITY, 'update'])
             from node import verify_releases
             verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',()))
         elif kind == 'apt':
-            validate_sources(self.root,self.workflow.get('allow_mirrors',()))
+            self.check_sources()
             from node import verify_key, package_available, verify_releases
             verify_key(self.root, self.call); verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',())); package_available(self.call, step['pins'])
             if (self.root/'usr/sbin/policy-rc.d').read_text() != SERVICE_BLOCK:
@@ -225,7 +235,7 @@ class LocalRunner:
 
     def package_preflight(self, pins):
         from node import verify_key, verify_releases, package_available
-        validate_sources(self.root,self.workflow.get('allow_mirrors',())); verify_key(self.root,self.call)
+        self.check_sources(); verify_key(self.root,self.call)
         verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',())); package_available(self.call,pins)
         for name,version in pins.items():
             current=self.package_version(name)
@@ -252,7 +262,7 @@ class LocalRunner:
         kind = step['kind']
         if kind == 'sources':
             from node import verify_key, universe_present
-            return validate_sources(self.root,self.workflow.get('allow_mirrors',())) and verify_key(self.root,self.call) and (self.workflow['profile']=='DB' or universe_present(self.root,self.workflow['arch'],self.workflow.get('allow_mirrors',())))
+            return self.check_sources() and verify_key(self.root,self.call) and (self.workflow['profile']=='DB' or universe_present(self.root,self.workflow['arch'],self.workflow.get('allow_mirrors',())))
         if kind == 'swap': return self.swap.validate()
         if kind == 'apt-preflight':
             self.package_preflight(step['pins']); return True

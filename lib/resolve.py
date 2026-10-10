@@ -5,7 +5,7 @@ import re
 from core import BASE, PROFILES, digest
 from local import APT_SECURITY, LocalRunner, check_npm_lock
 from node import verify_key, verify_releases
-from sources import validate_sources
+from sources import validate_sources, read_sources
 from workflow import build_workflow, validate_lock
 
 INST = re.compile(r'Inst ([a-z0-9][a-z0-9+.-]*(?::[a-z0-9]+)?)(?: \[([^]]+)\])? \(([^ ]+)')
@@ -43,6 +43,9 @@ def resolve(profile, observed, call, *, root='/', development=False, system_upda
     if not refresh_metadata: raise ValueError('refresh-metadata-authorization-required')
     root=Path(root)
     validate_sources(root,allow_mirrors); verify_key(root,call)
+    if authorization is not None:
+        current=[e for e in read_sources(root,allow_mirrors)['entries'] if e['source_file']!='universal-node-universe.sources']
+        if current!=authorization['source_policy']:raise ValueError('source-policy-changed')
     pins_npm=npm_pins(profile,development,bundle)
     # This mutation is reached only after explicit apply or refresh authorization.
     call(['/usr/bin/apt-get', *APT_SECURITY, 'update'])

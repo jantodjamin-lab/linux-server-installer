@@ -347,3 +347,17 @@ class RawSwapNamesTests(unittest.TestCase):
         from swap import active_swap
         self.assertEqual(active_swap(lambda _: '/mnt/swapfile (deleted) 8589930496\n'),{'/mnt/swapfile (deleted)':8589930496})
         self.assertEqual(active_swap(lambda _: '/swap file 1073741824\n'),{'/swap file':1073741824})
+
+
+class AuthorizationSourceBindingTests(unittest.TestCase):
+    def test_source_drift_after_confirmation_stops_before_marker_or_refresh(self):
+        from sources import read_sources
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);sources(root)
+            w=build_workflow('DB',fixture(),lock_for('DB'),authorization={'source_policy':read_sources(root)['entries']})
+            path=root/'etc/apt/sources.list.d/ubuntu.sources'
+            path.write_text(path.read_text().replace('main universe','main universe restricted'))
+            tr=Transport(root,w);runner=__import__('local').LocalRunner(w,'INSTALL:'+w['plan_id'],True,True,root,tr)
+            with self.assertRaisesRegex(ValueError,'source-policy-changed'):runner.apply(w['steps'][0])
+            self.assertFalse((root/'var/lib/universal-linux-installer/ownership.json').exists())
+            self.assertFalse(tr.calls)

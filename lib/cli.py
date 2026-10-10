@@ -71,7 +71,7 @@ def main():
     parser.add_argument('--max-new-packages',type=int,default=1000)
     parser.add_argument('--max-updates',type=int,default=100)
     parser.add_argument('--json',action='store_true',help='Machine-readable details; lock planning always emits JSON')
-    parser.add_argument('--sudo',action='store_true',help='Interactive sudo for approved --execute only; no password storage')
+    parser.add_argument('--sudo',action='store_true',help='Interactive sudo for apply/resolve/execute; no password storage')
     parser.add_argument('--lock',help='Exact package lock, schema 2')
     parser.add_argument('--plan',help='Reviewed RC5 workflow JSON, schema 5 (2-hour expiry)')
     parser.add_argument('--npm-bundle',help='Reviewed Angular/Codex npm lock directories')
@@ -133,7 +133,7 @@ def main():
         report={'schema':5,'profile':args.profile,'status':'FAIL','code':code,'error_type':type(error).__name__,'live_validated':False}
         if isinstance(error,WorkflowError):
             report['diagnostics']=[error.metadata]
-            report['directory']=str(Path(args.state_dir))
+            report['directory']=error.directory or str(Path(args.state_dir))
             if args.show_diagnostics and error.diagnostic_path:
                 from swap import regular
                 path=Path(error.diagnostic_path);regular(path,0o600)
