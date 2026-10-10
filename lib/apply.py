@@ -146,7 +146,7 @@ def authorized_resolution(args, observed, intent, directory, call, root='/'):
                 journal.event('FAILED',**metadata)
                 if stage!='sources':
                     journal.state['pending']=None;journal.event('AUTO_CLEARED',stage)
-                private_write(directory,'SUMMARY.txt',request_summary(intent,observed)+'\nFAIL '+stage+': '+metadata['code']+'\nSee preparation/journal.json and private diagnostics.\n')
+                private_write(directory,'SUMMARY.txt',request_summary(intent,observed)+'\nFAIL '+stage+': '+metadata['code']+(' ['+metadata['package']+']' if metadata.get('package') else '')+'\n'+metadata.get('remedy','')+'\nSee preparation/journal.json and private diagnostics.\n')
                 raise WorkflowError(metadata,diagnostic_path,directory) from None
             if stage not in journal.state['done']:journal.state['done'].append(stage)
             journal.state['pending']=None;journal.event('VALIDATED',stage)

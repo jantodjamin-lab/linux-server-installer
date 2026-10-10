@@ -59,7 +59,9 @@ def resolve(profile, observed, call, *, root='/', development=False, system_upda
     for name in required:
         output=call(['/usr/bin/apt-cache','-o','Dir::Cache::pkgcache=','-o','Dir::Cache::srcpkgcache=','policy',name])
         match=re.search(r'^\s*Candidate:\s*(\S+)',output,re.M)
-        if not match or match[1]=='(none)': raise ValueError('pinned-package-unavailable')
+        if not match or match[1]=='(none)':
+            from errors import PackageError
+            raise PackageError(name)
         candidates[name]=match[1]
     changes=simulation_changes(call([*argv,*[name+'='+version for name,version in sorted(candidates.items())]]))
     pins={**candidates,**changes}

@@ -5,6 +5,24 @@ import re
 PUBLIC_FAILURE_CODES = frozenset(['source-policy-changed','angular-major', 'angular-version', 'apt-components', 'apt-pin', 'apt-simulation-format', 'apt-simulation-incomplete', 'apt-source-architecture', 'apt-source-duplicate', 'apt-source-enabled', 'apt-source-format', 'apt-source-keyring', 'apt-source-owner', 'apt-source-path', 'apt-source-symlink', 'apt-source-type', 'apt-source-unreviewed-option', 'apt-source-uri-required', 'apt-suite', 'archive-key-fingerprint', 'archive-key-format', 'archive-key-gpg-required', 'archive-key-invalid', 'archive-key-owner', 'archive-key-symlink', 'archive-signature-fingerprint', 'archive-signature-invalid', 'artifact-checksum', 'artifact-kind', 'artifact-path', 'artifact-type', 'checkpoint-binding', 'checkpoint-symlink', 'codex-app-only', 'codex-development-only', 'codex-requires-app', 'completed-step-drift', 'config-symlink', 'development-binding', 'dotnet-major', 'dotnet-version', 'duplicate-json-key', 'duplicate-update', 'existing-config-conflict', 'existing-listener-conflict', 'existing-package-validation', 'existing-service-or-data-conflict', 'existing-swap-file-refused', 'existing-version-conflict', 'explicit-plan-snapshot-and-candidate-approval-required', 'explicit-snapshot-and-candidate-required', 'final-validators', 'foreign-architecture-package-refused', 'incomplete-closure', 'insecure-apt-source', 'installation-not-confirmed', 'intent-approval-mismatch', 'interactive-confirmation-required', 'journal-binding', 'journal-integrity', 'journal-owner', 'journal-types', 'journal-unknown-step', 'lock-map', 'lock-owner', 'lock-schema', 'manifest-schema', 'mirror-uri-invalid', 'new-package-limit-exceeded', 'nginx-default-conflict', 'no-approved-apt-sources', 'node-angular-compatibility', 'node-architecture', 'node-runtime-pin', 'node-version', 'nonfinite-json', 'npm-bundle-required', 'npm-destination-symlink', 'npm-lock-checksum', 'npm-lock-integrity', 'npm-lock-version', 'npm-package-path', 'npm-package-set', 'npm-pin', 'npm-registry', 'npm-root-binding', 'npm-root-package', 'npm-sri', 'npm-symlink', 'npm-version', 'npm-version-binding', 'ownership-binding', 'ownership-symlink', 'package-authenticated-metadata', 'package-dependency-format', 'package-downgrade-refused', 'package-list', 'package-metadata-duplicate', 'package-name', 'package-removal-refused', 'package-schema', 'package-version', 'pinned-package-unavailable', 'plan-date-invalid', 'plan-expired', 'plan-integrity', 'postgresql-major', 'postgresql-version', 'preflight-failed', 'private-directory-required', 'profile-package-set', 'reboot-required-manual-resume', 'refresh-metadata-authorization-required', 'release-metadata-owner', 'release-metadata-symlink', 'root-required', 'root-required-use-interactive-sudo', 'saved-plan-integrity', 'saved-plan-options', 'saved-plan-schema-regenerate-rc5', 'saved-plan-target-or-actions', 'service-guard-drift', 'service-start-guard', 'signed-release-metadata-required', 'snapshot-not-confirmed', 'sudo-execute-only', 'sudo-interactive-terminal-required', 'sudo-start-failed', 'sudo-trusted-executable-required', 'swap-activation', 'swap-active-drift', 'swap-capacity', 'swap-checkpoint', 'swap-checkpoint-capacity', 'swap-checkpoint-integrity', 'swap-disk-reserve', 'swap-file-mode', 'swap-file-owner', 'swap-file-race', 'swap-filesystem', 'swap-format', 'swap-fstab-conflict', 'swap-fstab-drift', 'swap-fstab-unowned', 'swap-holes-or-size', 'swap-inventory-format', 'swap-mount', 'swap-ownership', 'swap-parent-symlink', 'swap-symlink', 'swap-target', 'symlink-directory', 'system-update-approval-required', 'target-binding', 'ubuntu-keyring-required', 'uncertain-effects-review-required', 'unexpected-active-swap', 'universe-base-source-required', 'unknown-step', 'unpinned-dependency', 'unreviewed-source', 'unsupported-bundle', 'unvalidated-candidate-not-accepted', 'update-limit-exceeded'])
 
 
+REMEDIES = {
+    'pinned-package-unavailable':'Required exact package/candidate is unavailable after signed refresh. Check approved URI, suites/components and network; no version fallback is permitted.',
+    'system-update-approval-required':'Closure requires installed-package updates. Rerun with --system-updates only if those updates and limits are explicitly acceptable.',
+    'unpinned-dependency':'Dependency closure changed. Re-resolve a fresh exact plan; never bypass pins.',
+    'plan-expired':'Plan exceeds 2 hours. Re-resolve on a fresh target; a partial installation requires reviewed recovery.',
+    'saved-plan-schema-regenerate-rc5':'Schema-4 plans are refused. Regenerate using --resolve or --apply.',
+    'new-package-limit-exceeded':'Resolution exceeded the authorized new-package count; review and explicitly choose a new limit.',
+    'update-limit-exceeded':'Resolution exceeded the authorized update count; review and explicitly choose a new limit.',
+    'source-policy-changed':'Source bindings changed after authorization. Audit and confirm a new intent; do not silently expand source trust.',
+}
+
+
+class PackageError(ValueError):
+    def __init__(self, name):
+        self.package=name
+        super().__init__('pinned-package-unavailable')
+
+
 def redact(value):
     value = str(value)
     value = re.sub(r'(?i)(https?://)[^\s/]*@', r'\1[REDACTED]@', value)
@@ -45,6 +63,9 @@ def failure_metadata(step, error):
     elif isinstance(error, ValueError) and error.args and str(error.args[0]) in PUBLIC_FAILURE_CODES:
         code = error.args[0]
     result = {'step': step, 'code': code}
+    package=getattr(error,'package',None)
+    if isinstance(package,str) and re.fullmatch(r'[a-z0-9][a-z0-9+.-]{0,127}',package):result['package']=package
+    if code in REMEDIES:result['remedy']=REMEDIES[code]
     if isinstance(error, CommandError):
         result.update(command=error.command, exit_code=error.exit_code)
     return result

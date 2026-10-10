@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 import sys
-from errors import WorkflowError, CommandError, PUBLIC_FAILURE_CODES
+from errors import WorkflowError, CommandError, PUBLIC_FAILURE_CODES, REMEDIES
 from core import BASE, PROFILES, PUBLIC_CODES, inventory, plan, digest
 from workflow import build_workflow, validate_plan_age
 from journal import run_workflow
@@ -40,7 +40,7 @@ def render_summary(report):
     for item in report.get('checks',[]):
         lines.append(f"{item['status']:4} {item['id']}: {item['detail']}")
     for item in report.get('diagnostics',[]):
-        suffix=f" (exit {item['exit_code']})" if 'exit_code' in item else ''
+        suffix=(' ['+item['package']+']' if item.get('package') else '')+(f" (exit {item['exit_code']})" if 'exit_code' in item else '')
         lines.append(f"FAIL {item.get('step',item.get('stage','operation'))}: {item['code']}"+suffix)
         if item.get('remedy'):lines.append('Remedy: '+item['remedy'])
     if report.get('failures'): lines.append('FAIL reasons: '+', '.join(report['failures']))
@@ -142,7 +142,7 @@ def main():
             from errors import failure_metadata
             report['diagnostics']=[failure_metadata('operation',error)]
             if args.show_diagnostics:print(error.stderr_tail,file=sys.stderr)
-        if code=='saved-plan-schema-regenerate-rc5':report['remedy']='Schema-4 plans are refused; regenerate using --resolve or --apply'
+        if code in REMEDIES:report['remedy']=REMEDIES[code]
         print(json.dumps(report,sort_keys=True) if args.json or args.lock else render_summary(report))
         return 1
     except KeyboardInterrupt:

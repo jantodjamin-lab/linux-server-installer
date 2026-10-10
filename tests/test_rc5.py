@@ -375,3 +375,15 @@ class SwapColumnSelectionTests(unittest.TestCase):
             self.assertNotIn('--output',argv)
             return '/swapfile 3221221376\n'
         self.assertEqual(active_swap(call),{'/swapfile':3221221376})
+
+
+class MissingPackageRemedyTests(unittest.TestCase):
+    def test_missing_candidate_names_package_without_stderr(self):
+        from errors import PackageError, failure_metadata
+        metadata=failure_metadata('resolve',PackageError('nodejs'))
+        self.assertEqual(metadata['code'],'pinned-package-unavailable')
+        self.assertEqual(metadata['package'],'nodejs')
+        self.assertIn('no version fallback',metadata['remedy'])
+        summary=render_summary({'status':'FAIL','diagnostics':[metadata]})
+        self.assertIn('[nodejs]',summary);self.assertIn('Remedy:',summary)
+        self.assertNotIn('stderr',json.dumps(metadata))

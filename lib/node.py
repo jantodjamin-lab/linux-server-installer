@@ -110,7 +110,8 @@ def package_metadata(output,name,version):
         return {'version':version,'architecture':fields.get('Architecture','unknown'),
                 'depends':[item.strip() for item in dependencies.split(',') if item.strip()],
                 'sha256':fields['SHA256'],'availability':'cached-metadata; execution must verify signed closure'}
-    raise ValueError('pinned-package-unavailable')
+    from errors import PackageError
+    raise PackageError(name)
 
 
 def package_available(call,pins):
