@@ -22,7 +22,10 @@ def active_swap(call):
     result = {}
     for line in raw.splitlines():
         if not line.strip(): continue
-        fields = line.split()
+        # util-linux raw NAME is not guaranteed to hex-escape spaces (e.g.
+        # a kernel swap path marked '(deleted)' inside a container). SIZE is
+        # the final numeric column; split from the right and preserve the name.
+        fields = line.rsplit(None, 1)
         if len(fields) != 2: raise ValueError('swap-inventory-format')
         name, size = fields
         # libsmartcols raw output escapes unsafe path bytes as hex escapes.

@@ -340,3 +340,10 @@ class RealTTYTests(unittest.TestCase):
             with patch('apply.sys.stdin.isatty',return_value=True), open_terminal(os.ttyname(slave)) as terminal:
                 confirm(args,{'request_id':'a'*64},terminal)
         finally:os.close(master);os.close(slave)
+
+
+class RawSwapNamesTests(unittest.TestCase):
+    def test_real_util_linux_unescaped_space_and_deleted_suffix(self):
+        from swap import active_swap
+        self.assertEqual(active_swap(lambda _: '/mnt/swapfile (deleted) 8589930496\n'),{'/mnt/swapfile (deleted)':8589930496})
+        self.assertEqual(active_swap(lambda _: '/swap file 1073741824\n'),{'/swap file':1073741824})
