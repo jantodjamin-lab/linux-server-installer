@@ -241,9 +241,9 @@ class LocalRunner:
             raise ValueError('unknown-step')
 
     def package_preflight(self, pins):
-        from node import verify_key, verify_releases, package_available
+        from node import verify_key, verify_releases, package_records
         self.check_sources(); verify_key(self.root,self.call)
-        verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',())); package_available(self.call,pins)
+        verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',())); metadata=package_records(self.call,pins)
         for name,version in pins.items():
             current=self.package_version(name)
             if current and current!=version:
@@ -258,6 +258,7 @@ class LocalRunner:
         for name, version in pins.items():
             if self.package_version(name) != version and changes.get(name) != version:
                 raise ValueError('apt-simulation-incomplete')
+        return metadata
 
     def package_version(self, name):
         try:

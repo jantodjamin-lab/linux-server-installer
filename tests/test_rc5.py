@@ -175,6 +175,20 @@ class RC5ResolverTests(unittest.TestCase):
                 self.assertFalse(any('install' in a and '-s' not in a for a in calls))
                 validate_plan_age(w)
 
+    def test_batched_metadata_checks_every_exact_pin(self):
+        from node import package_records
+        pins={name:'1.0' for name in ('alpha','middle','zulu')}
+        calls=[]
+        output='\n'.join('Package: '+name+'\nVersion: 1.0\nFilename: pool/main/'+name+'.deb\nSHA256: '+'a'*64+'\nSize: 12\nInstalled-Size: 3\n' for name in pins)
+        def call(argv):calls.append(argv);return output
+        records=package_records(call,pins)
+        self.assertEqual(len(calls),1)
+        self.assertEqual(set(records),set(pins))
+        self.assertEqual(records['middle']['size'],12)
+        self.assertEqual(records['middle']['installed_size'],3072)
+        output=output.replace('Package: middle\nVersion: 1.0','Package: middle\nVersion: 0.9')
+        with self.assertRaisesRegex(ValueError,'pinned-package-unavailable'):package_records(call,pins)
+
     def test_refresh_requires_authorization(self):
         calls=[]
         with self.assertRaisesRegex(ValueError,'refresh-metadata-authorization'):resolve('DB',fixture(),lambda argv:calls.append(argv))

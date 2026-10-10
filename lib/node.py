@@ -109,15 +109,27 @@ def package_metadata(output,name,version):
             raise ValueError('package-dependency-format')
         return {'version':version,'architecture':fields.get('Architecture','unknown'),
                 'depends':[item.strip() for item in dependencies.split(',') if item.strip()],
+                'size':int(fields['Size']) if fields.get('Size','').isdigit() else None,
+                'installed_size':int(fields['Installed-Size'])*1024 if fields.get('Installed-Size','').isdigit() else None,
                 'sha256':fields['SHA256'],'availability':'cached-metadata; execution must verify signed closure'}
     from errors import PackageError
     raise PackageError(name)
 
 
+def package_records(call,pins):
+    records={}
+    items=sorted(pins.items())
+    # Each invocation loads the real APT cache. Bound argv length while avoiding
+    # hundreds of reloads; every requested exact version is checked individually.
+    for offset in range(0,len(items),64):
+        batch=items[offset:offset+64]
+        output=call(['/usr/bin/apt-cache','-o','Dir::Cache::pkgcache=','-o','Dir::Cache::srcpkgcache=','show',*[name+'='+version for name,version in batch]])
+        for name,version in batch:records[name]=package_metadata(output,name,version)
+    return records
+
+
 def package_available(call,pins):
-    for name,version in sorted(pins.items()):
-        output=call(['/usr/bin/apt-cache','-o','Dir::Cache::pkgcache=','-o','Dir::Cache::srcpkgcache=','show',name+'='+version])
-        package_metadata(output,name,version)
+    package_records(call,pins)
     return True
 
 

@@ -90,7 +90,7 @@ def resolve(profile, observed, call, *, root='/', development=False, system_upda
     checker=object.__new__(LocalRunner)
     checker.root=root; checker.transport=lambda argv,cwd=None:call(argv)
     checker.workflow={'allow_mirrors':list(allow_mirrors),'allow_proxy_env':allow_proxy_env}
-    checker.package_preflight(pins)
+    metadata=checker.package_preflight(pins)
     workflow=build_workflow(profile,observed,lock,development,system_updates,
                             allow_mirrors=allow_mirrors,allow_proxy_env=allow_proxy_env,authorization=authorization)
     workflow['resolution']={'new_packages':len(new),'updates':len(updates),
@@ -98,10 +98,8 @@ def resolve(profile, observed, call, *, root='/', development=False, system_upda
     # Use apt-cache's authenticated package size metadata for real estimates.
     download=0; disk=0
     for name in changes:
-        output=call(['/usr/bin/apt-cache','-o','Dir::Cache::pkgcache=','-o','Dir::Cache::srcpkgcache=','show',name+'='+pins[name]])
-        size=re.search(r'^Size:\s*(\d+)\s*$',output,re.M)
-        installed_size=re.search(r'^Installed-Size:\s*(\d+)\s*$',output,re.M)
-        if size and installed_size: download+=int(size[1]); disk+=int(installed_size[1])*1024
+        size=metadata[name]['size']; installed_size=metadata[name]['installed_size']
+        if size is not None and installed_size is not None: download+=size; disk+=installed_size
         else: download=None; disk=None; break
     workflow['resolution'].update(download_bytes=download,disk_bytes=disk,estimate='upper-bound installed size for changed packages; excludes npm and swap')
     workflow['plan_id']=digest({k:v for k,v in workflow.items() if k!='plan_id'})

@@ -40,8 +40,7 @@ class Transport:
         if executable == 'swapon':
             return '/existing-swap '+str(4*2**30)+'\n'
         if executable == 'apt-cache':
-            name, version = argv[-1].split('=',1)
-            return 'Package: '+name+'\nVersion: '+version+'\nFilename: pool/main/fixture.deb\nSHA256: '+'a'*64+'\n'
+            return '\n'.join('Package: '+name+'\nVersion: '+version+'\nFilename: pool/main/fixture.deb\nSHA256: '+'a'*64+'\n' for name,version in (pin.split('=',1) for pin in argv[argv.index('show')+1:]))
         if executable == 'apt-get' and 'install' in argv and '-s' in argv:
             pins = [a.split('=',1) for a in argv if '=' in a and not a.startswith(('APT::','Acquire::','Dpkg::','DPkg::'))]
             return ''.join('Inst '+name+' ('+version+' Ubuntu [amd64])\n' for name,version in pins if self.versions.get(name) != version)
