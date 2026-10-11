@@ -7,7 +7,11 @@ trap 'rm -rf -- "$work"' EXIT
 source "$base/bash/common.sh"
 source "$base/bash/app.sh"
 CODEX_PARENT=$work/managed CODEX_DIR=$work/managed/codex CODEX_LINK=$work/codex
-stat() { if [[ $1 == -c && $2 == %u ]]; then echo 0; else /usr/bin/stat "$@"; fi; }
+stat() {
+    if [[ $1 == -c && $2 == %u ]]; then echo 0
+    elif [[ $1 == -c && $2 == %a && ( $3 == /opt || $3 == /usr || $3 == /usr/local || $3 == /usr/local/bin ) ]]; then echo 755
+    else /usr/bin/stat "$@"; fi
+}
 runuser() { printf '%s\n' "$*" > "$work/user-probe"; [[ ${DENY_USER:-0} == 0 ]] || return 1; echo 'codex-cli 0.128.0'; }
 app_codex_runtime_paths
 for directory in "${CODEX_RUNTIME_DIRS[@]}"; do mkdir -p "$directory"; chmod 700 "$directory"; done
