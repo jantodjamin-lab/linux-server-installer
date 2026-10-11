@@ -8,6 +8,7 @@ STATE_DIR=$ROOT/var/lib/universal-linux-installer
 STATE_FILE=$STATE_DIR/state
 PROFILE='' STATUS=new CURRENT='' COMPLETED='' UPDATED='' STATE_VERSION=''
 state_load() {
+  if [[ -d $STATE_DIR && ! -x $STATE_DIR ]]; then fail 'Statusmap ontoegankelijk; administratorrechten vereist'; return 1; fi
   [[ -e $STATE_FILE ]] || return 0
   [[ -f $STATE_FILE && ! -L $STATE_FILE && $(stat -c %u "$STATE_FILE") == 0 && $(stat -c %a "$STATE_FILE") == 600 ]] || { fail 'Onveilig statusbestand'; return 1; }
   local key value

@@ -58,19 +58,19 @@ else
   if [[ -n $STATE_VERSION && $STATE_VERSION != "$VERSION" ]]; then fail 'Bestaande status gebruikt een andere installerversie'; exit 1; fi
   PROFILE=$requested
 fi
-if [[ $STATUS == complete ]]; then
-  swap_ensure verify
-  [[ $PROFILE != app ]] && database_verify
-  [[ $PROFILE != database ]] && app_verify
-  pass 'Installatie reeds afgerond en gecontroleerd'; exit
-fi
-STATUS=running; state_save
-trap 'result=$?; trap - ERR; fail "Stap ${CURRENT:-verification} onderbroken (exit $result)" || true; STATUS=failed; state_save || true; exit "$result"' ERR
 [[ ! -L $STATE_DIR/install.log ]] || { fail 'Onveilig logbestand'; exit 1; }
 if [[ -e $STATE_DIR/install.log ]]; then
   [[ -f $STATE_DIR/install.log && $(stat -c %u "$STATE_DIR/install.log") == 0 && $(stat -c %a "$STATE_DIR/install.log") == 600 ]] || { fail 'Onveilige logrechten'; exit 1; }
 fi
 exec > >(tee -a "$STATE_DIR/install.log") 2>&1
+if [[ $STATUS == complete ]]; then
+  if ! swap_ensure verify; then fail 'Afgeronde installatie: swapcontrole mislukt; handmatige beoordeling vereist'; exit 1; fi
+  if [[ $PROFILE != app ]] && ! database_verify; then fail 'Afgeronde installatie: DATABASE-componenten wijken af; handmatige beoordeling vereist'; exit 1; fi
+  if [[ $PROFILE != database ]] && ! app_verify; then fail 'Afgeronde installatie: APP-componenten wijken af; handmatige beoordeling vereist'; exit 1; fi
+  pass 'Installatie reeds afgerond en gecontroleerd'; exit
+fi
+STATUS=running; state_save
+trap 'result=$?; trap - ERR; fail "Stap ${CURRENT:-verification} onderbroken (exit $result)" || true; STATUS=failed; state_save || true; exit "$result"' ERR
 resume_service_install
 CURRENT=apt_update; state_save
 run_apt update

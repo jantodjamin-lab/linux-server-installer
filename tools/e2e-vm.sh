@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 profile=${1:-APP}; scenario=${2:-swap0}
 case $profile in APP|DB|APP+DB) ;; *) exit 2;; esac
-case $scenario in swap0|swap2|swap4|interruption|transip) ;; *) exit 2;; esac
+case $scenario in swap0|swap2|swap4|interruption|swap-interruption|transip) ;; *) exit 2;; esac
 for cmd in qemu-system-x86_64 qemu-img cloud-localds tar timeout sha256sum base64; do
  command -v "$cmd" >/dev/null || { echo "BLOCKED missing $cmd" >&2; exit 77; }
 done
@@ -55,7 +55,35 @@ if [[ ! -e /var/lib/uli-vm-firstboot ]]; then
   chmod 600 /existing-swap; mkswap /existing-swap; swapon /existing-swap
   echo '/existing-swap none swap sw 0 0' >> /etc/fstab
  fi
- if [[ $SCENARIO == interruption ]]; then
+ if [[ $SCENARIO == swap-interruption ]]; then
+  cat > /usr/local/sbin/dd <<'DD_WRAPPER'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ $* == *of=/var/lib/universal-linux-installer/swapfile* && ! -e /var/lib/uli-vm-swap-paused ]]; then
+ /usr/bin/dd if=/dev/zero of=/var/lib/universal-linux-installer/swapfile bs=1048576 count=1 conv=fsync status=none
+ touch /var/lib/uli-vm-swap-paused
+ echo 'Paused after actual 1 MiB allocation' > /evidence/swap-allocation-pause
+ while :; do sleep 1; done
+fi
+exec /usr/bin/dd "$@"
+DD_WRAPPER
+  chmod 0755 /usr/local/sbin/dd
+  bash install.sh --profile "$PROFILE" --yes & pid=$!
+  for ((i=0;i<900;i++)); do
+   [[ ! -e /evidence/swap-allocation-pause ]] || break
+   sleep 1
+  done
+  [[ -e /evidence/swap-allocation-pause ]]
+  systemctl is-enabled --quiet universal-linux-installer-resume.service
+  grep -qx 'current=swap' /var/lib/universal-linux-installer/state
+  [[ ! -e /var/lib/universal-linux-installer/swap-owner ]]
+  stat -c %s /var/lib/universal-linux-installer/swapfile > /evidence/partial-size
+  [[ $(cat /evidence/partial-size) == 1048576 ]]
+  sha256sum /var/lib/universal-linux-installer/swapfile > /evidence/partial-sha256
+  cp /etc/fstab /evidence/fstab-before
+  cp /var/lib/universal-linux-installer/state /evidence/interrupted-state
+  kill -0 "$pid"
+ elif [[ $SCENARIO == interruption ]]; then
   cat > /usr/local/sbin/apt-get <<'APT_WRAPPER'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -83,6 +111,30 @@ APT_WRAPPER
  echo REBOOT_REQUIRED > /evidence/result
  sync; systemctl reboot
 else
+ if [[ $SCENARIO == swap-interruption ]]; then
+  for ((i=0;i<60;i++)); do
+   grep -qx 'status=failed' /var/lib/universal-linux-installer/state && break
+   sleep 1
+  done
+  grep -qx 'status=failed' /var/lib/universal-linux-installer/state
+  grep -qx 'current=swap' /var/lib/universal-linux-installer/state
+  [[ ! -e /var/lib/universal-linux-installer/swap-owner ]]
+  [[ $(stat -c %s /var/lib/universal-linux-installer/swapfile) == $(cat /evidence/partial-size) ]]
+  sha256sum -c /evidence/partial-sha256
+  cmp /etc/fstab /evidence/fstab-before
+  active_names=$(swapon --show --noheadings --raw --output NAME)
+  [[ $active_names != */var/lib/universal-linux-installer/swapfile* ]]
+  printf "%s\n" "$active_names" > /evidence/active-swap-names
+  cp /var/lib/universal-linux-installer/state /evidence/failed-state
+  bash install.sh --audit > /evidence/audit.txt
+  cmp /var/lib/universal-linux-installer/state /evidence/failed-state
+  sha256sum -c /evidence/partial-sha256
+  cmp /etc/fstab /evidence/fstab-before
+  journalctl --no-pager -u universal-linux-installer-resume.service > /evidence/resume-journal.txt
+  echo 'PASS expected fail-safe stop after actual interrupted swap allocation'
+  echo PASS > /evidence/result; sync; systemctl poweroff
+  exit 0
+ fi
  for ((i=0;i<1800;i++)); do
   if bash install.sh --status > /evidence/status.txt 2>&1 && grep -Eq 'COMPLETE|complete' /evidence/status.txt; then break; fi
   sleep 2
