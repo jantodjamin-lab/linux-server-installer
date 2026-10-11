@@ -32,9 +32,9 @@ state_save() {
   local temporary
   temporary=$(mktemp "$STATE_DIR/.state.XXXXXX") || return
   chmod 600 "$temporary" || return
-  printf 'profile=%s\nversion=%s\ncompleted=%s\ncurrent=%s\nstatus=%s\nupdated=%s\n' "$PROFILE" "$VERSION" "$COMPLETED" "$CURRENT" "$STATUS" "$(date -u +%FT%TZ)" > "$temporary"
+  printf 'profile=%s\nversion=%s\ncompleted=%s\ncurrent=%s\nstatus=%s\nupdated=%s\n' "$PROFILE" "$VERSION" "$COMPLETED" "$CURRENT" "$STATUS" "$(date -u +%FT%TZ)" > "$temporary" || return
   mv -f "$temporary" "$STATE_FILE" || return
-  sync -f "$STATE_DIR"
+  sync -f "$STATE_DIR" || return
 }
 state_step() {
   local name=$1; shift
@@ -85,7 +85,7 @@ resume_service_install() {
     fi
   fi
   unit_temp=$(mktemp /etc/systemd/system/.uli-resume.XXXXXX) || return
-  cat > "$unit_temp" <<EOF_UNIT
+  cat > "$unit_temp" <<EOF_UNIT || return
 # Managed by Universal Linux Installer
 [Unit]
 Description=Resume authorized Universal Linux Installer
@@ -102,16 +102,16 @@ EOF_UNIT
   chmod 644 "$unit_temp" || return
   mv -f "$unit_temp" "$unit" || return
   sync -f /etc/systemd/system || return
-  systemctl daemon-reload
-  systemctl enable universal-linux-installer-resume.service
+  systemctl daemon-reload || return
+  systemctl enable universal-linux-installer-resume.service || return
 }
 state_prepare() {
   [[ ! -L $ROOT/var && ! -L $ROOT/var/lib ]] || { fail 'Onveilige statusbovenmap'; return 1; }
   [[ ! -L $STATE_DIR ]] || { fail 'Onveilige statusmap'; return 1; }
-  install -d -m 700 "$STATE_DIR"
+  install -d -m 700 "$STATE_DIR" || return
   [[ $(stat -c %u "$STATE_DIR") == 0 && $(stat -c %a "$STATE_DIR") == 700 ]] || { fail 'Statusmap moet root-eigendom en 0700 zijn'; return 1; }
   [[ ! -L $STATE_DIR/lock ]] || { fail 'Onveilig lockbestand'; return 1; }
-  exec 9>"$STATE_DIR/lock"
+  exec 9>"$STATE_DIR/lock" || return
   flock -n 9 || { fail 'Een andere installatie draait'; return 1; }
   state_load
 }

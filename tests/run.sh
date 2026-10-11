@@ -29,6 +29,18 @@ VERSION=1.0.0-test PROFILE=app STATUS=running CURRENT='' COMPLETED=''
 state_save
 PROFILE=''; state_load; [[ $PROFILE == app ]]
 ok 'Persistent profile/version state round trip'
+command cp "$STATE_FILE" "$work/state-before"
+(
+ # Fault injection is invoked indirectly by the sourced module.
+ # shellcheck disable=SC2317,SC2059
+ printf() {
+  if [[ $1 == profile=%s* ]]; then builtin printf "partial"; return 1; fi
+  builtin printf "$@"
+ }
+ if state_save; then exit 1; fi
+ cmp "$work/state-before" "$STATE_FILE"
+)
+ok "Failed state write never replaces valid previous state"
 mutations=0
 change() { mutations=$((mutations+1)); }
 state_step probe change

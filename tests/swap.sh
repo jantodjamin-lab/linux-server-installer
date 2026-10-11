@@ -87,3 +87,29 @@ rm "$ULI_ROOT/activated"
 swap_ensure install
 [[ $(wc -l < "$ULI_ROOT/dd-calls") == 1 && $(wc -l < "$ULI_ROOT/mkswap-calls") == 1 ]]
 echo 'PASS reboot modeled: reactivates without recreating or reformatting'
+reset_case fstab-copy-failure 0
+swap_ensure install
+printf 'UUID=important-root / ext4 defaults 0 1\n' > "$ULI_ROOT/etc/fstab"
+command cp "$ULI_ROOT/etc/fstab" "$ULI_ROOT/fstab-before"
+(
+ # Fault injection is invoked indirectly by the sourced module.
+ # shellcheck disable=SC2317
+ cp() { if [[ $1 == --preserve=mode,ownership ]]; then return 1; else command cp "$@"; fi; }
+ if swap_ensure verify; then exit 1; fi
+ cmp "$ULI_ROOT/fstab-before" "$ULI_ROOT/etc/fstab"
+)
+echo 'PASS conditional swap verification preserves original fstab on copy failure'
+reset_case marker-write-failure 0
+swap_ensure install
+command cp "$STATE_DIR/swap-owner" "$ULI_ROOT/owner-before"
+(
+ # Fault injection is invoked indirectly by the sourced module.
+ # shellcheck disable=SC2317,SC2059
+ printf() {
+  if [[ $1 == '%s %s\n' ]]; then builtin printf 'partial'; return 1; fi
+  builtin printf "$@"
+ }
+ if swap_marker formatted 4296015872; then exit 1; fi
+ cmp "$ULI_ROOT/owner-before" "$STATE_DIR/swap-owner"
+)
+echo 'PASS failed marker write never replaces valid previous ownership state'
