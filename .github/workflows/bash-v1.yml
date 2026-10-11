@@ -1,0 +1,59 @@
+name: Bash V1 acceptance
+on:
+  push:
+    branches: [bash-v1]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bash-v1-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: bash tests/run.sh
+      - run: bash tests/release.sh
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck -e SC1090,SC1091,SC2034,SC2154 install.sh bash/*.sh tools/*.sh tests/*.sh
+  vm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: APP
+            scenario: swap0
+          - profile: DB
+            scenario: swap0
+          - profile: APP+DB
+            scenario: swap0
+          - profile: DB
+            scenario: swap2
+          - profile: DB
+            scenario: swap4
+          - profile: DB
+            scenario: interruption
+          - profile: DB
+            scenario: transip
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Signed Ubuntu image and actual disposable VM installation
+        env:
+          PROFILE: ${{ matrix.profile }}
+          SCENARIO: ${{ matrix.scenario }}
+          IMAGE_SHA: ''
+        run: bash tools/ci-vm.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: bash-v1-${{ matrix.profile }}-${{ matrix.scenario }}
+          path: e2e-logs/

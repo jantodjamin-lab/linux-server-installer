@@ -1,12 +1,12 @@
 #!/bin/sh
 # Disposable GitHub-hosted Linux runner only. Never install development host prerequisites.
 set -eu
-[ "${GITHUB_ACTIONS:-}" = true ] && [ "${RUNNER_ENVIRONMENT:-}" = github-hosted ] && [ "${RUNNER_OS:-}" = Linux ] || {
+if [ "${GITHUB_ACTIONS:-}" != true ] || [ "${RUNNER_ENVIRONMENT:-}" != github-hosted ] || [ "${RUNNER_OS:-}" != Linux ]; then
   echo 'Refusing: disposable GitHub-hosted Linux runner required' >&2; exit 2;
-}
-[ "$PWD" = "${GITHUB_WORKSPACE:-}" ] && [ -d "${RUNNER_TEMP:-/nonexistent}" ] || {
+fi
+if [ "$PWD" != "${GITHUB_WORKSPACE:-}" ] || [ ! -d "${RUNNER_TEMP:-/nonexistent}" ]; then
   echo 'Refusing: GitHub workspace and temporary directory required' >&2; exit 2;
-}
+fi
 : "${PROFILE:?Set profile}"
 case "$PROFILE" in APP|DB|APP+DB) ;; *) exit 2;; esac
 mkdir -p e2e-logs
@@ -37,9 +37,8 @@ verified_sha=$(awk -v file="*$image_name" '$2==file { print $1 }' "$image_dir/SH
 curl -q --fail --location --connect-timeout 30 --max-time 300 --proto '=https' --proto-redir '=https' "$IMAGE_URL" -o "$image_dir/$image_name"
 printf '%s  %s\n' "$verified_sha" "$image_dir/$image_name" | sha256sum -c -
 cp "$image_dir/SHA256SUMS" "$image_dir/signature-status.txt" e2e-logs/
-export RC5_E2E_IMAGE="$image_dir/$image_name" RC5_E2E_IMAGE_SHA256="$verified_sha" TMPDIR="$PWD/e2e-logs"
-if [ "${VM_SECURITY:-false}" = true ]; then export RC5_E2E_SECURITY=1; fi
+export ULI_VM_IMAGE="$image_dir/$image_name" ULI_VM_SHA256="$verified_sha" TMPDIR="$PWD/e2e-logs"
 # Smoke all three profiles with real systemd, TransIP mirror and APP development tools.
 # Each parallel fault job selects exactly one fresh-VM interruption event.
-sh tools/e2e-vm.sh "$PROFILE" > e2e-logs/status.txt 2>&1
+bash tools/e2e-vm.sh "$PROFILE" "${SCENARIO:-swap0}" > e2e-logs/status.txt 2>&1
 cat e2e-logs/status.txt

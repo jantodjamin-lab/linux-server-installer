@@ -1,0 +1,55 @@
+#!/bin/sh
+# Local disposable QEMU only. Never SSH/remote; never installs host prerequisites.
+set -eu
+profile=${1:-APP}
+case "$profile" in APP|DB|APP+DB) ;; *) echo 'Invalid profile' >&2; exit 2;; esac
+for binary in qemu-system-x86_64 qemu-img cloud-localds python3 tar timeout sha256sum; do
+  command -v "$binary" >/dev/null || { echo "SKIP layer 3: missing $binary" >&2; exit 77; }
+done
+accelerator=${RC5_E2E_ACCELERATOR:-auto}
+case "$accelerator" in auto) if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then accelerator=kvm; else accelerator=tcg; fi;; kvm|tcg) ;; *) exit 2;; esac
+if [ "$accelerator" = kvm ]; then qemu_accel="-enable-kvm -cpu host"; else qemu_accel="-accel tcg,thread=multi -cpu max"; fi
+export RC5_E2E_ACCELERATOR=$accelerator
+printf 'Layer 3 accelerator: %s (disposable local VM)\n' "$accelerator"
+: "${RC5_E2E_IMAGE:?Set path to a locally verified Ubuntu 26.04 amd64 cloud image}"
+: "${RC5_E2E_IMAGE_SHA256:?Set independently trusted cloud-image SHA256}"
+RC5_E2E_IMAGE=$(python3 -B -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve(strict=True))' "$RC5_E2E_IMAGE")
+export RC5_E2E_IMAGE
+printf '%s  %s\n' "$RC5_E2E_IMAGE_SHA256" "$RC5_E2E_IMAGE" | sha256sum -c -
+base=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/rc5-vm.XXXXXXXX")
+export RC5_E2E_WORK=$work RC5_E2E_BASE=$base RC5_E2E_PROFILE=$profile
+# All overlays, seed files and evidence are preserved for operator inspection.
+python3 -B "$base/tools/e2e-seed.py"
+run_cases() {
+for case_dir in "$@"; do
+  qemu-img create -f qcow2 -F qcow2 -b "$RC5_E2E_IMAGE" "$case_dir/disk.qcow2" 110G
+  memory=$(cat "$case_dir/memory")
+  for boot in 1 2; do
+    serial=serial.log
+    [ "$boot" = 1 ] || serial=serial-reboot.log
+    boot_timeout=${RC5_E2E_TIMEOUT:-150m}
+    [ "$boot" = 1 ] || boot_timeout=${RC5_E2E_REBOOT_TIMEOUT:-20m}
+    timeout "$boot_timeout" qemu-system-x86_64 $qemu_accel -smp 1 -m "$memory" \
+    -drive "file=$case_dir/disk.qcow2,format=qcow2,if=virtio" \
+    -drive "file=$case_dir/seed.img,format=raw,if=virtio,readonly=on" \
+    -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
+    -virtfs "local,path=$case_dir/artifacts,mount_tag=rc5logs,security_model=mapped-xattr" \
+    -nographic -no-reboot >"$case_dir/$serial" 2>&1
+    [ -f "$case_dir/artifacts/result.json" ] || { echo "FAIL layer 3: no result; inspect $case_dir" >&2; exit 1; }
+    status=$(python3 -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$case_dir/artifacts/result.json")
+    if [ "$status" != REBOOT_REQUIRED ]; then break; fi
+    [ "$boot" = 1 ] && [ "${RC5_E2E_REBOOT:-0}" = 1 ] || { echo 'FAIL invalid reboot proof state' >&2; exit 1; }
+  done
+  [ -f "$case_dir/artifacts/result.json" ] || { echo "FAIL layer 3: no result; inspect $case_dir" >&2; exit 1; }
+  python3 -B -c 'import json,sys; assert json.load(open(sys.argv[1]))["status"] == "PASS"' "$case_dir/artifacts/result.json"
+done
+}
+run_cases "$work"/case-0*
+if [ "${RC5_E2E_MATRIX:-0}" = 1 ]; then
+  RC5_E2E_FAULT_EVENTS=$(python3 -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["journal_events"])' "$work/case-000/artifacts/result.json")
+  export RC5_E2E_ONLY_FAULTS=1 RC5_E2E_FAULT_EVENTS
+  python3 -B "$base/tools/e2e-seed.py"
+  run_cases "$work"/case-1*
+fi
+printf 'PASS local disposable VM scenarios; evidence: %s; owner acceptance still required\n' "$work"

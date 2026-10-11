@@ -1,0 +1,157 @@
+{
+  "checks": [
+    {
+      "message": "Observation unavailable: {'message': 'QueryError: services query returned 1', 'returncode': 1, 'stdout': '', 'stderr': 'Failed to connect to system scope bus via local transport: Operation not permitted (consider using --machine=<user>@.host --user to connect to bus of other user)\\n'}",
+      "name": "services",
+      "status": "WARN"
+    },
+    {
+      "message": "Observation unavailable: {'message': 'QueryError: ssh_sockets query returned 1', 'returncode': 1, 'stdout': '', 'stderr': 'Failed to connect to system scope bus via local transport: Operation not permitted (consider using --machine=<user>@.host --user to connect to bus of other user)\\n'}",
+      "name": "ssh_sockets",
+      "status": "WARN"
+    },
+    {
+      "message": "Observed distribution: ubuntu; Ubuntu/Debian are design targets",
+      "name": "os",
+      "status": "PASS"
+    },
+    {
+      "message": "Linux 7.0.0-38-generic",
+      "name": "kernel",
+      "status": "PASS"
+    },
+    {
+      "message": "Observed 1; O/TEST minimum 1; production recommendation 4",
+      "name": "cpu",
+      "status": "WARN"
+    },
+    {
+      "message": "Observed 843.062; O/TEST minimum 843; production recommendation 6144",
+      "name": "ram",
+      "status": "WARN"
+    },
+    {
+      "message": "Observed 87.2206; minimum 30",
+      "name": "disk",
+      "status": "PASS"
+    },
+    {
+      "message": "Observed swap: 4096 MiB",
+      "name": "swap",
+      "status": "PASS"
+    },
+    {
+      "message": "Local sshd executable presence checked",
+      "name": "ssh_binary",
+      "status": "PASS"
+    },
+    {
+      "message": "SSH access, configuration and authentication are not verified; no SSH connection made",
+      "name": "ssh_security",
+      "status": "WARN"
+    },
+    {
+      "message": "Proposed profile ports are free",
+      "name": "ports",
+      "status": "PASS"
+    },
+    {
+      "message": "Local TCP port 22 inspected; owner, reachability and custom SSH ports are not verified",
+      "name": "ssh_listener",
+      "status": "WARN"
+    },
+    {
+      "message": "sudo executable presence checked",
+      "name": "sudo_binary",
+      "status": "PASS"
+    },
+    {
+      "message": "Local UID 1000, effective UID 1000, groups [1000]; these do not establish sudo authorization",
+      "name": "sudo_context",
+      "status": "PASS"
+    },
+    {
+      "message": "Not verified: WP-001 prohibits executing sudo, including sudo -n",
+      "name": "sudo_passwordless",
+      "status": "WARN"
+    }
+  ],
+  "errors": {
+    "services": {
+      "message": "QueryError: services query returned 1",
+      "returncode": 1,
+      "stderr": "Failed to connect to system scope bus via local transport: Operation not permitted (consider using --machine=<user>@.host --user to connect to bus of other user)\n",
+      "stdout": ""
+    },
+    "ssh_sockets": {
+      "message": "QueryError: ssh_sockets query returned 1",
+      "returncode": 1,
+      "stderr": "Failed to connect to system scope bus via local transport: Operation not permitted (consider using --machine=<user>@.host --user to connect to bus of other user)\n",
+      "stdout": ""
+    }
+  },
+  "observations": {
+    "cpu": 1,
+    "disk": {
+      "free_gib": 87.2205696105957,
+      "path": "/home/appo-admin/ramin-control-panel-v2"
+    },
+    "identity": {
+      "euid": 1000,
+      "group_ids": [
+        1000
+      ],
+      "uid": 1000
+    },
+    "kernel": {
+      "release": "7.0.0-38-generic",
+      "system": "Linux"
+    },
+    "memory": {
+      "ram_mib": 843.0625,
+      "swap_mib": 4095.99609375
+    },
+    "os": {
+      "BUG_REPORT_URL": "\"https://bugs.launchpad.net/ubuntu/\"",
+      "HOME_URL": "\"https://www.ubuntu.com/\"",
+      "ID": "ubuntu",
+      "ID_LIKE": "debian",
+      "LOGO": "ubuntu-logo",
+      "NAME": "\"Ubuntu\"",
+      "PRETTY_NAME": "\"Ubuntu 26.04.1 LTS\"",
+      "PRIVACY_POLICY_URL": "\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"",
+      "SUPPORT_URL": "\"https://help.ubuntu.com/\"",
+      "UBUNTU_CODENAME": "resolute",
+      "VERSION": "\"26.04.1 LTS (Resolute Raccoon)\"",
+      "VERSION_CODENAME": "resolute",
+      "VERSION_ID": "\"26.04\""
+    },
+    "ports": [],
+    "ports_raw": "",
+    "ssh_binary": "/usr/sbin/sshd",
+    "sudo_binary": "/usr/bin/sudo"
+  },
+  "policy": {
+    "environment": "O/TEST",
+    "minimum": {
+      "cpu": 1,
+      "disk_gib": 30,
+      "ram_mib": 843
+    },
+    "production_recommendation": {
+      "cpu": 4,
+      "disk_gib": 30,
+      "ports": [
+        80,
+        443,
+        5432
+      ],
+      "ram_mib": 6144
+    }
+  },
+  "profile": "APP-DB",
+  "schema_version": 2,
+  "scope": "local-read-only",
+  "status": "WARN",
+  "timestamp_utc": "2026-10-10T01:31:50.261610+00:00"
+}

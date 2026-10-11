@@ -1,0 +1,10 @@
+{
+  "@angular/cli": {
+    "lock_sha256": "5e5999e8f72523778b740949a4bee315db97d9370ab9dca996dc8eb39cc54707",
+    "version": "20.3.39"
+  },
+  "@openai/codex": {
+    "lock_sha256": "b2645d7cb42265680842553b3d16a5f512a645187c96abe55c6f1d1d5f859d71",
+    "version": "0.128.0"
+  }
+}

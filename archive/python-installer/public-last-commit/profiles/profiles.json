@@ -1,0 +1,72 @@
+{
+  "APP": {
+    "disk_gib": 10,
+    "packages": [
+      "git",
+      "python3",
+      "dotnet-sdk-10.0",
+      "nodejs",
+      "npm",
+      "nginx",
+      "curl"
+    ],
+    "minimum": {
+      "cpu": 1,
+      "ram_mib": 843
+    },
+    "recommended": {
+      "cpu": 2,
+      "ram_mib": 2048
+    },
+    "swap_gib": 4,
+    "services": [
+      "nginx"
+    ]
+  },
+  "APP+DB": {
+    "disk_gib": 30,
+    "packages": [
+      "git",
+      "python3",
+      "dotnet-sdk-10.0",
+      "nodejs",
+      "npm",
+      "nginx",
+      "postgresql-18",
+      "curl"
+    ],
+    "minimum": {
+      "cpu": 1,
+      "ram_mib": 843
+    },
+    "recommended": {
+      "cpu": 4,
+      "ram_mib": 4096
+    },
+    "swap_gib": 4,
+    "services": [
+      "nginx",
+      "postgresql"
+    ]
+  },
+  "DB": {
+    "disk_gib": 20,
+    "packages": [
+      "git",
+      "python3",
+      "postgresql-18"
+    ],
+    "minimum": {
+      "cpu": 1,
+      "ram_mib": 843
+    },
+    "recommended": {
+      "cpu": 2,
+      "ram_mib": 2048
+    },
+    "swap_gib": 4,
+    "services": [
+      "postgresql"
+    ]
+  }
+}

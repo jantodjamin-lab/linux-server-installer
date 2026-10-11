@@ -1,29 +1,34 @@
-# Universal Linux Installer
+# Universal Linux Server Installer — Bash V1
 
-**1.0.0-rc.5 — NIET LIVE GEVALIDEERD / NOT LIVE VALIDATED.**
-Local Ubuntu 26.04 installer for fresh disposable APP, DB or APP+DB VMs.
-Runtime: Python 3.11+ and POSIX sh. Audit is read-only.
+**Validation status: NO-GO until the acceptance evidence in docs/VALIDATION.md is complete.**
 
-```sh
-sh install.sh --profile APP+DB --audit
-sh install.sh --profile APP+DB --apply --sudo
+Active installer code is Bash. Python 3 is installed only as an APP development tool.
+The previous implementation is **CLOSED – SUPERSEDED BY BASH V1** and retained under `archive/`.
+
+Download the release archive and SHA256SUMS, verify `sha256sum -c SHA256SUMS`, extract, then start:
+
+```bash
+bash install.sh
 ```
 
-Apply shows bounded installation intent before requesting `INSTALL <hash-prefix>`.
-It asks explicit snapshot/risk questions unless those acknowledgements are supplied
-as flags. Only after authorization does it refresh signed metadata, resolve the
-exact dependency closure and install. No manual lock, plan or npm bundle is needed.
-Existing package upgrades require `--system-updates`; absence means stop rather
-than silently upgrade. An explicitly allowed provider mirror uses its exact URI.
+The menu offers APP, DATABASE, APP + DATABASE and read-only status. One confirmation authorizes the chosen plan. Root or sudo is required only for installation. No live installation is authorized on APP-O or TEST-O.
 
-[Operator guide](docs/GUIDE.md) · [Security](SECURITY.md) ·
-[Architecture](docs/ARCHITECTURE.md) · [Changelog](CHANGELOG.md) ·
-[Sources](docs/SOURCES.md)
+Targets: Ubuntu 26.04.1 LTS, signed Ubuntu repositories including the existing TransIP mirror. Filesystem support for newly created swap is deliberately bounded; unsupported filesystems fail safely. Existing swap is never removed.
 
-```sh
-python3 -B -W error::ResourceWarning -m unittest discover -s tests
+See [installation](docs/INSTALLATION.md), [recovery](docs/RECOVERY.md), [architecture](docs/ARCHITECTURE.md), [validation](docs/VALIDATION.md) and [archive inventory](docs/ARCHIVE.md).
+
+```text
+linux-server-installer/
+├── install.sh
+├── README.md
+├── VERSION
+├── CHANGELOG.md
+├── bash/              # common, checks, state, swap, app, database
+├── docs/              # installation, recovery, architecture, archive, validation
+├── tests/             # isolated Bash regression tests
+├── tools/             # Bash validation and release tools
+├── .github/workflows/ # disposable VM acceptance
+└── archive/
+    ├── python-installer/
+    └── research/
 ```
-
-No SSH, remote execution, automatic rollback, firewall changes or production GO.
-Signed sources, exact pins, reviewed npm/SRI locks and private recovery evidence
-remain mandatory. Neither unit nor container tests establish live VM acceptance.

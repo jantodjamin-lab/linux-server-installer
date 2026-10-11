@@ -1,55 +1,140 @@
-#!/bin/sh
-# Local disposable QEMU only. Never SSH/remote; never installs host prerequisites.
-set -eu
-profile=${1:-APP}
-case "$profile" in APP|DB|APP+DB) ;; *) echo 'Invalid profile' >&2; exit 2;; esac
-for binary in qemu-system-x86_64 qemu-img cloud-localds python3 tar timeout sha256sum; do
-  command -v "$binary" >/dev/null || { echo "SKIP layer 3: missing $binary" >&2; exit 77; }
+#!/usr/bin/env bash
+# Never provisions the host; all target changes occur in disposable QEMU guests.
+set -Eeuo pipefail
+profile=${1:-APP}; scenario=${2:-swap0}
+case $profile in APP|DB|APP+DB) ;; *) exit 2;; esac
+case $scenario in swap0|swap2|swap4|interruption|transip) ;; *) exit 2;; esac
+for cmd in qemu-system-x86_64 qemu-img cloud-localds tar timeout sha256sum base64; do
+ command -v "$cmd" >/dev/null || { echo "BLOCKED missing $cmd" >&2; exit 77; }
 done
-accelerator=${RC5_E2E_ACCELERATOR:-auto}
-case "$accelerator" in auto) if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then accelerator=kvm; else accelerator=tcg; fi;; kvm|tcg) ;; *) exit 2;; esac
-if [ "$accelerator" = kvm ]; then qemu_accel="-enable-kvm -cpu host"; else qemu_accel="-accel tcg,thread=multi -cpu max"; fi
-export RC5_E2E_ACCELERATOR=$accelerator
-printf 'Layer 3 accelerator: %s (disposable local VM)\n' "$accelerator"
-: "${RC5_E2E_IMAGE:?Set path to a locally verified Ubuntu 26.04 amd64 cloud image}"
-: "${RC5_E2E_IMAGE_SHA256:?Set independently trusted cloud-image SHA256}"
-RC5_E2E_IMAGE=$(python3 -B -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve(strict=True))' "$RC5_E2E_IMAGE")
-export RC5_E2E_IMAGE
-printf '%s  %s\n' "$RC5_E2E_IMAGE_SHA256" "$RC5_E2E_IMAGE" | sha256sum -c -
-base=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-work=$(mktemp -d "${TMPDIR:-/tmp}/rc5-vm.XXXXXXXX")
-export RC5_E2E_WORK=$work RC5_E2E_BASE=$base RC5_E2E_PROFILE=$profile
-# All overlays, seed files and evidence are preserved for operator inspection.
-python3 -B "$base/tools/e2e-seed.py"
-run_cases() {
-for case_dir in "$@"; do
-  qemu-img create -f qcow2 -F qcow2 -b "$RC5_E2E_IMAGE" "$case_dir/disk.qcow2" 110G
-  memory=$(cat "$case_dir/memory")
-  for boot in 1 2; do
-    serial=serial.log
-    [ "$boot" = 1 ] || serial=serial-reboot.log
-    boot_timeout=${RC5_E2E_TIMEOUT:-150m}
-    [ "$boot" = 1 ] || boot_timeout=${RC5_E2E_REBOOT_TIMEOUT:-20m}
-    timeout "$boot_timeout" qemu-system-x86_64 $qemu_accel -smp 1 -m "$memory" \
-    -drive "file=$case_dir/disk.qcow2,format=qcow2,if=virtio" \
-    -drive "file=$case_dir/seed.img,format=raw,if=virtio,readonly=on" \
-    -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
-    -virtfs "local,path=$case_dir/artifacts,mount_tag=rc5logs,security_model=mapped-xattr" \
-    -nographic -no-reboot >"$case_dir/$serial" 2>&1
-    [ -f "$case_dir/artifacts/result.json" ] || { echo "FAIL layer 3: no result; inspect $case_dir" >&2; exit 1; }
-    status=$(python3 -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"])' "$case_dir/artifacts/result.json")
-    if [ "$status" != REBOOT_REQUIRED ]; then break; fi
-    [ "$boot" = 1 ] && [ "${RC5_E2E_REBOOT:-0}" = 1 ] || { echo 'FAIL invalid reboot proof state' >&2; exit 1; }
-  done
-  [ -f "$case_dir/artifacts/result.json" ] || { echo "FAIL layer 3: no result; inspect $case_dir" >&2; exit 1; }
-  python3 -B -c 'import json,sys; assert json.load(open(sys.argv[1]))["status"] == "PASS"' "$case_dir/artifacts/result.json"
-done
-}
-run_cases "$work"/case-0*
-if [ "${RC5_E2E_MATRIX:-0}" = 1 ]; then
-  RC5_E2E_FAULT_EVENTS=$(python3 -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["journal_events"])' "$work/case-000/artifacts/result.json")
-  export RC5_E2E_ONLY_FAULTS=1 RC5_E2E_FAULT_EVENTS
-  python3 -B "$base/tools/e2e-seed.py"
-  run_cases "$work"/case-1*
+: "${ULI_VM_IMAGE:?verified Ubuntu image required}" "${ULI_VM_SHA256:?trusted SHA256 required}"
+printf '%s  %s\n' "$ULI_VM_SHA256" "$ULI_VM_IMAGE" | sha256sum -c -
+base=$(cd -- "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d "${TMPDIR:-/tmp}/bash-v1-vm.XXXXXXXX")
+mkdir "$work/artifacts"
+tar -czf "$work/installer.tar.gz" -C "$base" install.sh bash VERSION
+payload=$(base64 -w0 "$work/installer.tar.gz")
+cat > "$work/guest.sh" <<'GUEST'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+mkdir -p /evidence
+mount -t 9p -o trans=virtio,version=9p2000.L evidence /evidence
+exec > >(tee -a /evidence/guest.log) 2>&1
+trap 'echo FAIL > /evidence/result; sync; systemctl poweroff' ERR
+source /etc/os-release
+[[ $VERSION_ID == 26.04 && $PRETTY_NAME == *26.04.1* ]] || { echo 'BLOCKED exact Ubuntu 26.04.1 image required'; false; }
+cd /opt/installer
+if [[ ! -e /var/lib/uli-vm-firstboot ]]; then
+ touch /var/lib/uli-vm-firstboot
+ if [[ $SCENARIO == transip ]]; then
+  mkdir -p /etc/apt/sources.list.d
+  mv /etc/apt/sources.list.d/ubuntu.sources /etc/apt/ubuntu.sources.saved
+  printf "%s\n" "Types: deb" "URIs: https://mirror.transip.net/ubuntu/ubuntu/" "Suites: resolute resolute-updates resolute-security" "Components: main universe restricted multiverse" "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg" > /etc/apt/sources.list.d/provider-test.sources
+ fi
+ if [[ $SCENARIO == swap2 || $SCENARIO == swap4 ]]; then
+  size=2; [[ $SCENARIO != swap4 ]] || size=4
+  dd if=/dev/zero of=/existing-swap bs=1M count=$((size*1024+1)) status=none
+  chmod 600 /existing-swap; mkswap /existing-swap; swapon /existing-swap
+  echo '/existing-swap none swap sw 0 0' >> /etc/fstab
+ fi
+ if [[ $SCENARIO == interruption ]]; then
+  cat > /usr/local/sbin/apt-get <<'APT_WRAPPER'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ $* == *install* && $* != *--simulate* && ! -e /var/lib/uli-vm-paused ]]; then
+ touch /var/lib/uli-vm-paused
+ echo 'Paused before actual apt install' > /evidence/pre-mutation-pause
+ while :; do sleep 1; done
 fi
-printf 'PASS local disposable VM scenarios; evidence: %s; owner acceptance still required\n' "$work"
+exec /usr/bin/apt-get "$@"
+APT_WRAPPER
+  chmod 0755 /usr/local/sbin/apt-get
+  bash install.sh --profile "$PROFILE" --yes & pid=$!
+  for ((i=0;i<900;i++)); do
+   if [[ -e /evidence/pre-mutation-pause ]] && systemctl is-enabled --quiet universal-linux-installer-resume.service && grep -Eq "^current=(app|database)" /var/lib/universal-linux-installer/state 2>/dev/null; then break; fi
+   sleep 1
+  done
+  systemctl is-enabled --quiet universal-linux-installer-resume.service
+  [[ -e /evidence/pre-mutation-pause ]]
+  grep -Eq "^current=(app|database)" /var/lib/universal-linux-installer/state
+  cp /var/lib/universal-linux-installer/state /evidence/interrupted-state
+  kill -0 "$pid"
+ else
+  bash install.sh --profile "$PROFILE" --yes
+ fi
+ echo REBOOT_REQUIRED > /evidence/result
+ sync; systemctl reboot
+else
+ for ((i=0;i<1800;i++)); do
+  if bash install.sh --status > /evidence/status.txt 2>&1 && grep -Eq 'COMPLETE|complete' /evidence/status.txt; then break; fi
+  sleep 2
+ done
+ grep -Eq 'COMPLETE|complete' /evidence/status.txt
+ swap=$(swapon --show=SIZE --bytes --noheadings | awk '{s+=$1} END {printf "%.0f",s}')
+ ((swap >= 4294967296))
+ cp /etc/fstab /evidence/fstab-before
+ bash install.sh --profile "$PROFILE" --yes
+ cmp /etc/fstab /evidence/fstab-before
+ command -v python3 >/dev/null || [[ $PROFILE == DB ]]
+ if [[ $PROFILE != DB ]]; then
+  git --version; dotnet --list-sdks | grep '^10\.'; node --version; npm --version; codex --version; systemctl is-active nginx
+ fi
+ if [[ $PROFILE != APP ]]; then
+  sudo -u postgres psql -Atc 'show server_version' | grep '^18\.'
+  systemctl is-active postgresql
+ fi
+ swapon --show > /evidence/swap-after-reboot.txt
+ cp -a /var/lib/universal-linux-installer /evidence/state
+ echo PASS > /evidence/result; sync; systemctl poweroff
+fi
+GUEST
+# A persistent boot service starts evidence verification on the second real boot.
+script=$(base64 -w0 "$work/guest.sh")
+cat > "$work/user-data" <<EOF2
+#cloud-config
+write_files:
+  - path: /opt/installer.tar.gz
+    encoding: b64
+    content: $payload
+  - path: /usr/local/sbin/uli-vm-test
+    permissions: '0755'
+    encoding: b64
+    content: $script
+  - path: /etc/systemd/system/uli-vm-test.service
+    content: |
+      [Unit]
+      After=network-online.target cloud-final.service universal-linux-installer-resume.service
+      Wants=network-online.target
+      [Service]
+      Type=oneshot
+      Environment=PROFILE=$profile
+      Environment=SCENARIO=$scenario
+      ExecStart=/usr/local/sbin/uli-vm-test
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - mkdir -p /opt/installer
+  - tar -xzf /opt/installer.tar.gz -C /opt/installer
+  - systemctl enable uli-vm-test.service
+  - systemctl start --no-block uli-vm-test.service
+EOF2
+printf 'instance-id: uli-%s\nlocal-hostname: uli-test\n' "$RANDOM" > "$work/meta-data"
+cloud-localds "$work/seed.img" "$work/user-data" "$work/meta-data"
+qemu-img create -f qcow2 -F qcow2 -b "$(realpath "$ULI_VM_IMAGE")" "$work/disk.qcow2" 35G
+accel=(-accel "tcg,thread=multi" -cpu max)
+[[ ! -r /dev/kvm || ! -w /dev/kvm ]] || accel=(-enable-kvm -cpu host)
+for boot in 1 2; do
+ timeout --kill-after=30s "${ULI_VM_TIMEOUT:-100m}" qemu-system-x86_64 "${accel[@]}" -smp 2 -m 4096 \
+ -drive "file=$work/disk.qcow2,format=qcow2,if=virtio" \
+ -drive "file=$work/seed.img,format=raw,if=virtio,readonly=on" \
+ -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
+ -virtfs "local,path=$work/artifacts,mount_tag=evidence,security_model=none" \
+ -nographic -no-reboot > "$work/serial-$boot.log" 2>&1
+ [[ -f $work/artifacts/result ]]
+ result=$(cat "$work/artifacts/result")
+ [[ $result != FAIL ]] || exit 1
+ [[ $result != PASS ]] || break
+ [[ $result == REBOOT_REQUIRED ]]
+done
+[[ $(cat "$work/artifacts/result") == PASS ]]
+echo "PASS $profile/$scenario evidence=$work"
