@@ -32,6 +32,11 @@ VERSION=installer-version-sentinel
 checks_system >/dev/null 2>&1 || true
 [[ $VERSION == installer-version-sentinel ]]
 ok 'OS detection preserves installer version namespace'
+unit_template=$(awk '/^# Managed by Universal Linux Installer$/ {in_unit=1} in_unit && /^EOF_UNIT$/ {exit} in_unit {print}' "$base/bash/state.sh")
+[[ $unit_template == *'After=network-online.target nginx.service postgresql.service postgresql@18-main.service'* ]]
+[[ $unit_template == *'Wants=network-online.target'* ]]
+[[ $unit_template != *'Wants=nginx'* && $unit_template != *'Wants=postgresql'* && $unit_template != *'Requires='* ]]
+ok 'Resume waits for existing APP/DB boot jobs without starting missing services' 
 VERSION=1.0.0-test PROFILE=app STATUS=running CURRENT='' COMPLETED=''
 state_save
 PROFILE=''; state_load; [[ $PROFILE == app ]]
@@ -97,5 +102,6 @@ ok 'Invalid profile refused'
 # File-level test follows, with mocked kernel-facing swap commands.
 bash "$base/tests/swap.sh"
 bash "$base/tests/profiles.sh"
+bash "$base/tests/npm-config.sh"
 bash "$base/tests/sudo.sh"
 printf 'PASS %s offline contract groups plus swap matrix\n' "$passed"

@@ -40,5 +40,7 @@ cp "$image_dir/SHA256SUMS" "$image_dir/signature-status.txt" e2e-logs/
 export ULI_VM_IMAGE="$image_dir/$image_name" ULI_VM_SHA256="$verified_sha" TMPDIR="$PWD/e2e-logs"
 # Smoke all three profiles with real systemd, TransIP mirror and APP development tools.
 # Each parallel fault job selects exactly one fresh-VM interruption event.
-bash tools/e2e-vm.sh "$PROFILE" "${SCENARIO:-swap0}" > e2e-logs/status.txt 2>&1
+vm_result=0
+bash tools/e2e-vm.sh "$PROFILE" "${SCENARIO:-swap0}" > e2e-logs/status.txt 2>&1 || vm_result=$?
 cat e2e-logs/status.txt
+exit "$vm_result"

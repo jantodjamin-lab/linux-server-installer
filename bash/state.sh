@@ -90,7 +90,7 @@ resume_service_install() {
 [Unit]
 Description=Resume authorized Universal Linux Installer
 Wants=network-online.target
-After=network-online.target
+After=network-online.target nginx.service postgresql.service postgresql@18-main.service
 ConditionPathExists=$STATE_FILE
 [Service]
 Type=oneshot

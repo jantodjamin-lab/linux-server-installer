@@ -31,7 +31,7 @@ app_codex_verify() {
 }
 
 app_codex_install() {
-  local assets="$INSTALLER_DIR/bash/assets/codex" major npm_output
+  local assets="$INSTALLER_DIR/bash/assets/codex" major npm_output npm_work
   major=$(node --version) || return
   major=${major#v}; major=${major%%.*}
   if ! [[ $major =~ ^[0-9]+$ ]] || (( major != 22 && major != 24 )); then
@@ -51,15 +51,20 @@ app_codex_install() {
   (umask 077; printf '%s\n' "$CODEX_VERSION" > "$CODEX_DIR/.uli-managed") || return
   install -m 0644 "$assets/package.json" "$assets/package-lock.json" "$CODEX_DIR/" || return
   # npm ci safely replaces only managed node_modules, including interrupted runs.
-  npm_output=$(mktemp /tmp/uli-npm.XXXXXXXX) || return
+  npm_work=$(mktemp -d /tmp/uli-npm.XXXXXXXX) || return
+  npm_output=$npm_work/output
+  install -m 600 /dev/null "$npm_work/user.npmrc" || return
+  install -m 600 /dev/null "$npm_work/global.npmrc" || return
   if ! env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME="$CODEX_DIR" \
     npm ci --prefix "$CODEX_DIR" --ignore-scripts --include=optional --engine-strict \
-    --registry=https://registry.npmjs.org --userconfig=/dev/null --globalconfig=/dev/null \
+    --registry=https://registry.npmjs.org --userconfig="$npm_work/user.npmrc" --globalconfig="$npm_work/global.npmrc" \
     --audit=false --fund=false --loglevel=error > "$npm_output" 2>&1; then
-    rm -f -- "$npm_output"
+    rm -f -- "$npm_output" "$npm_work/user.npmrc" "$npm_work/global.npmrc"
+    rmdir -- "$npm_work"
     fail 'Codex npm-integriteitsinstallatie mislukt; uitvoer afgeschermd'; return 1
   fi
-  rm -f -- "$npm_output"
+  rm -f -- "$npm_output" "$npm_work/user.npmrc" "$npm_work/global.npmrc"
+  rmdir -- "$npm_work"
   [[ $("$CODEX_DIR/node_modules/.bin/codex" --version) == "codex-cli $CODEX_VERSION" ]] || {
     fail 'Codex native pakket ontbreekt of versie is onjuist'; return 1;
   }

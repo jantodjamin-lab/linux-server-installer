@@ -33,6 +33,8 @@ failure_evidence() {
  df -h > /evidence/disk.txt
  swapon --show > /evidence/swap-failure.txt
  cp /var/lib/universal-linux-installer/state /evidence/failed-state
+ systemctl show universal-linux-installer-resume.service postgresql@18-main.service nginx.service -p Id -p ActiveState -p SubState -p Result -p ExecMainStatus -p ExecMainStartTimestampMonotonic > /evidence/component-service-status.txt
+ if command -v pg_lsclusters >/dev/null; then pg_lsclusters > /evidence/postgresql-clusters.txt; fi
  journalctl --no-pager -u universal-linux-installer-resume.service -u uli-vm-test.service > /evidence/services.txt
  echo FAIL > /evidence/result
  sync
@@ -110,7 +112,14 @@ APT_WRAPPER
   cp /var/lib/universal-linux-installer/state /evidence/interrupted-state
   kill -0 "$pid"
  else
-  bash install.sh --profile "$PROFILE" --yes
+  if [[ $PROFILE == DB && $SCENARIO == swap0 ]]; then
+   # Actual nonroot entry and cloud-image sudo, confined to this disposable guest.
+   id ubuntu > /evidence/sudo-entry-user.txt
+   runuser -u ubuntu -- /bin/bash /opt/installer/install.sh --profile DB --yes
+   echo 'PASS actual ubuntu entry and sudo escalation completed' > /evidence/sudo-result.txt
+  else
+   bash install.sh --profile "$PROFILE" --yes
+  fi
  fi
  echo REBOOT_REQUIRED > /evidence/result
  sync; systemctl reboot
