@@ -20,9 +20,12 @@ set -Eeuo pipefail
 mkdir -p /evidence
 mount -t 9p -o trans=virtio,version=9p2000.L evidence /evidence
 exec > >(tee -a /evidence/guest.log) 2>&1
+guest_pid=$BASHPID
 failure_evidence() {
  local failure_status=$? failure_line=${BASH_LINENO[0]:-unknown}
  trap - ERR
+ # A failed command substitution must fail its parent, never power off itself.
+ if [[ $BASHPID != "$guest_pid" ]]; then exit "$failure_status"; fi
  set +e
  echo "FAIL exit=$failure_status line=$failure_line" > /evidence/failure.txt
  cp /etc/os-release /evidence/os-release
@@ -34,6 +37,7 @@ failure_evidence() {
  echo FAIL > /evidence/result
  sync
  systemctl poweroff
+ exit "$failure_status"
 }
 trap failure_evidence ERR
 source /etc/os-release
@@ -118,11 +122,17 @@ else
   done
   grep -qx 'status=failed' /var/lib/universal-linux-installer/state
   grep -qx 'current=swap' /var/lib/universal-linux-installer/state
+  systemctl show universal-linux-installer-resume.service -p Result -p ExecMainStatus -p ExecMainStartTimestampMonotonic > /evidence/resume-service.txt
+  grep -qx 'Result=exit-code' /evidence/resume-service.txt
+  resume_exit=$(systemctl show universal-linux-installer-resume.service -p ExecMainStatus --value)
+  [[ $resume_exit =~ ^[0-9]+$ && $resume_exit != 0 ]]
+  resume_started=$(systemctl show universal-linux-installer-resume.service -p ExecMainStartTimestampMonotonic --value)
+  [[ $resume_started =~ ^[0-9]+$ && $resume_started != 0 ]]
   [[ ! -e /var/lib/universal-linux-installer/swap-owner ]]
   [[ $(stat -c %s /var/lib/universal-linux-installer/swapfile) == $(cat /evidence/partial-size) ]]
   sha256sum -c /evidence/partial-sha256
   cmp /etc/fstab /evidence/fstab-before
-  active_names=$(swapon --show --noheadings --raw --output NAME)
+  active_names=$(swapon --show=NAME --noheadings --raw)
   [[ $active_names != */var/lib/universal-linux-installer/swapfile* ]]
   printf "%s\n" "$active_names" > /evidence/active-swap-names
   cp /var/lib/universal-linux-installer/state /evidence/failed-state
@@ -140,6 +150,13 @@ else
   sleep 2
  done
  grep -Eq 'COMPLETE|complete' /evidence/status.txt
+ # Prove the original enabled service ran successfully on this real second boot.
+ systemctl show universal-linux-installer-resume.service -p Result -p ExecMainStatus -p ExecMainStartTimestampMonotonic > /evidence/resume-service.txt
+ grep -qx 'Result=success' /evidence/resume-service.txt
+ grep -qx 'ExecMainStatus=0' /evidence/resume-service.txt
+ resume_started=$(systemctl show universal-linux-installer-resume.service -p ExecMainStartTimestampMonotonic --value)
+ [[ $resume_started =~ ^[0-9]+$ && $resume_started != 0 ]]
+ journalctl --no-pager -u universal-linux-installer-resume.service > /evidence/resume-journal.txt
  swap=$(swapon --show=SIZE --bytes --noheadings | awk '{s+=$1} END {printf "%.0f",s}')
  ((swap >= 4294967296))
  cp /etc/fstab /evidence/fstab-before
@@ -178,7 +195,7 @@ write_files:
   - path: /etc/systemd/system/uli-vm-test.service
     content: |
       [Unit]
-      After=network-online.target cloud-final.service universal-linux-installer-resume.service
+      After=network-online.target universal-linux-installer-resume.service
       Wants=network-online.target
       [Service]
       Type=oneshot
@@ -199,15 +216,25 @@ qemu-img create -f qcow2 -F qcow2 -b "$(realpath "$ULI_VM_IMAGE")" "$work/disk.q
 accel=(-accel "tcg,thread=multi" -cpu max)
 [[ ! -r /dev/kvm || ! -w /dev/kvm ]] || accel=(-enable-kvm -cpu host)
 for boot in 1 2; do
- timeout --kill-after=30s "${ULI_VM_TIMEOUT:-100m}" qemu-system-x86_64 "${accel[@]}" -smp 2 -m 4096 \
+ if timeout --kill-after=30s "${ULI_VM_TIMEOUT:-100m}" qemu-system-x86_64 "${accel[@]}" -smp 2 -m 4096 \
  -drive "file=$work/disk.qcow2,format=qcow2,if=virtio" \
  -drive "file=$work/seed.img,format=raw,if=virtio,readonly=on" \
  -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
  -virtfs "local,path=$work/artifacts,mount_tag=evidence,security_model=none" \
- -nographic -no-reboot > "$work/serial-$boot.log" 2>&1
- [[ -f $work/artifacts/result ]]
+ -nographic -no-reboot > "$work/serial-$boot.log" 2>&1; then :
+ else
+  vm_status=$?
+  printf 'FAIL VM boot %s exited %s; evidence=%s\n' "$boot" "$vm_status" "$work"
+  [[ ! -f $work/artifacts/guest.log ]] || tail -60 "$work/artifacts/guest.log"
+  exit "$vm_status"
+ fi
+ [[ -f $work/artifacts/result ]] || { echo "FAIL missing guest result; evidence=$work" >&2; exit 1; }
  result=$(cat "$work/artifacts/result")
- [[ $result != FAIL ]] || exit 1
+ if [[ $result == FAIL ]]; then
+  [[ ! -f $work/artifacts/failure.txt ]] || cat "$work/artifacts/failure.txt"
+  [[ ! -f $work/artifacts/guest.log ]] || tail -60 "$work/artifacts/guest.log"
+  exit 1
+ fi
  [[ $result != PASS ]] || break
  [[ $result == REBOOT_REQUIRED ]]
 done

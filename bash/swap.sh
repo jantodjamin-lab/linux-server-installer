@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 swap_active_bytes() {
   local inventory
-  inventory=$(swapon --show --bytes --noheadings --output SIZE) || return
+  inventory=$(swapon --show=SIZE --bytes --noheadings --raw) || return
   awk 'NF && $1 !~ /^[0-9]+$/ {bad=1} {s+=$1} END {if(bad) exit 1; printf "%.0f\n",s}' <<< "$inventory"
 }
 swap_ensure() {
@@ -38,7 +38,7 @@ swap_ensure() {
     mkswap "$file" || return
     phase=formatted; swap_marker "$phase" "$bytes" || return
   fi
-  names=$(swapon --show --noheadings --raw --output NAME) || return
+  names=$(swapon --show=NAME --noheadings --raw) || return
   if ! grep -Fx -- "$file" <<< "$names" >/dev/null; then
     swapon "$file" || return
   fi

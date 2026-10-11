@@ -31,11 +31,15 @@ printf '%s\n' "$1" >> "$ULI_ROOT/mkswap-calls"
 MOCK
 cat > "$work/bin/swapon" <<'MOCK'
 #!/usr/bin/env bash
-if [[ $1 == --show ]]; then
- if [[ $* == *SIZE* ]]; then
+for argument in "$@"; do
+ [[ $argument != --output ]] || { echo 'Invalid swapon --output abbreviation' >&2; exit 99; }
+done
+if [[ $1 == --show=SIZE || $1 == --show=NAME ]]; then
+ if [[ $1 == --show=SIZE ]]; then
   cat "$ULI_ROOT/active-bytes"
   [[ ! -f $ULI_ROOT/activated ]] || echo "$(( $(/usr/bin/stat -c %s "$(cat "$ULI_ROOT/activated")") - 4096 ))"
  elif [[ -f $ULI_ROOT/activated ]]; then cat "$ULI_ROOT/activated"; fi
+elif [[ $1 == --show* ]]; then echo 'Explicit SIZE or NAME column required' >&2; exit 99
 else printf '%s\n' "$1" > "$ULI_ROOT/activated"; fi
 MOCK
 chmod +x "$work/bin/"*

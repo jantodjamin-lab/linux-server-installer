@@ -21,6 +21,13 @@ chmod +x "$work/bin/stat"
 source "$base/bash/common.sh"
 source "$base/bash/state.sh"
 source "$base/bash/checks.sh"
+source "$base/bash/swap.sh"
+if command -v swapon >/dev/null && [[ -r /proc/swaps ]]; then
+ actual_swap=$(swap_active_bytes)
+ proc_swap=$(awk 'NR>1 {s+=$3*1024} END {printf "%.0f",s}' /proc/swaps)
+ [[ $actual_swap == "$proc_swap" ]]
+ ok 'Real read-only swapon inventory agrees with kernel proc table'
+fi
 VERSION=installer-version-sentinel
 checks_system >/dev/null 2>&1 || true
 [[ $VERSION == installer-version-sentinel ]]
