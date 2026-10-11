@@ -5,7 +5,7 @@ checks_system() {
   . /etc/os-release
   [[ $ID == ubuntu && $VERSION_ID == 26.04 ]] || { fail 'Alleen Ubuntu 26.04 LTS wordt ondersteund'; return 1; }
   local tool
-  for tool in flock systemctl apt-get dpkg-query findmnt swapon mkswap sha256sum stat install; do
+  for tool in flock systemctl apt-get dpkg-query findmnt swapon mkswap sha256sum stat install runuser; do
     command -v "$tool" >/dev/null || { fail "Vereist hulpmiddel ontbreekt: $tool"; return 1; }
   done
   [[ $(ps -p 1 -o comm=) == systemd ]] || { fail 'Systemd als PID 1 is vereist'; return 1; }

@@ -1,4 +1,6 @@
 # Bash V1 acceptance evidence
+> Historical bash.1 acceptance only: Codex was checked as root. See BASH-V1-001.md for the bash.2 correction and current normal-user evidence.
+
 
 **PASS — real installation acceptance completed, 2026-10-11.** Production GO additionally requires independent public-download verification, attached to the release as `PUBLICATION-VERIFICATION.md`.
 

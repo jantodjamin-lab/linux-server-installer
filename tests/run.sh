@@ -102,6 +102,7 @@ ok 'Invalid profile refused'
 # File-level test follows, with mocked kernel-facing swap commands.
 bash "$base/tests/swap.sh"
 bash "$base/tests/profiles.sh"
+bash "$base/tests/codex-permissions.sh"
 bash "$base/tests/npm-config.sh"
 bash "$base/tests/sudo.sh"
 printf 'PASS %s offline contract groups plus swap matrix\n' "$passed"

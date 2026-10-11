@@ -1,4 +1,6 @@
 # Definitieve oplevering — Universal Linux Installer Bash V1
+> Historical bash.1 acceptance only: Codex was checked as root. See BASH-V1-001.md for the bash.2 correction and current normal-user evidence.
+
 
 **PASS voor implementatie en echte installatieacceptatie.** Productie-GO volgt uitsluitend na onafhankelijke verificatie van het publieke releasearchief. De releasebijlage `PUBLICATION-VERIFICATION.md` bevat het definitieve besluit, commitnummers en SHA256. Release `v1.0.0-bash.1` blijft de gevraagde prerelease.
 

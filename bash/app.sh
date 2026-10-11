@@ -2,11 +2,13 @@
 # Ubuntu archive packages only; npm uses a reviewed immutable SRI lock.
 CODEX_VERSION=0.128.0
 CODEX_LOCK_SHA256=b2645d7cb42265680842553b3d16a5f512a645187c96abe55c6f1d1d5f859d71
-CODEX_DIR=/opt/universal-linux-installer/codex
+CODEX_PARENT=/opt/universal-linux-installer
+CODEX_DIR=$CODEX_PARENT/codex
+CODEX_LINK=/usr/local/bin/codex
 
 app_codex_path_security() {
   local directory mode
-  for directory in /opt /opt/universal-linux-installer "$CODEX_DIR"; do
+  for directory in /opt /usr /usr/local /usr/local/bin "$CODEX_PARENT" "$CODEX_DIR"; do
     [[ ! -L $directory ]] || { fail 'Symlink in Codex-beheerpad'; return 1; }
     [[ -e $directory ]] || continue
     [[ -d $directory && $(stat -c %u "$directory") == 0 ]] || return 1
@@ -23,15 +25,67 @@ app_codex_path_security() {
   fi
 }
 
-app_codex_verify() {
+# Exact runtime allowlist for the pinned Linux package; never chmod the cache,
+# root HOME, npm configs, marker or unrelated files recursively.
+app_codex_runtime_paths() {
+  local native target
+  case $(uname -m) in
+    x86_64) native=$CODEX_DIR/node_modules/@openai/codex-linux-x64; target=x86_64-unknown-linux-musl;;
+    aarch64) native=$CODEX_DIR/node_modules/@openai/codex-linux-arm64; target=aarch64-unknown-linux-musl;;
+    *) fail 'Codex-runtimearchitectuur niet ondersteund'; return 1;;
+  esac
+  CODEX_RUNTIME_DIRS=("$CODEX_PARENT" "$CODEX_DIR" "$CODEX_DIR/node_modules" "$CODEX_DIR/node_modules/.bin"
+    "$CODEX_DIR/node_modules/@openai" "$CODEX_DIR/node_modules/@openai/codex" "$CODEX_DIR/node_modules/@openai/codex/bin"
+    "$native" "$native/vendor" "$native/vendor/$target" "$native/vendor/$target/codex" "$native/vendor/$target/path")
+  CODEX_RUNTIME_DATA=("$CODEX_DIR/node_modules/@openai/codex/package.json" "$native/package.json")
+  CODEX_RUNTIME_EXEC=("$CODEX_DIR/node_modules/@openai/codex/bin/codex.js"
+    "$native/vendor/$target/codex/codex" "$native/vendor/$target/path/rg")
+}
+
+app_codex_runtime_present() {
+  app_codex_runtime_paths || return
+  local path
+  for path in "${CODEX_RUNTIME_DIRS[@]}"; do [[ -d $path ]] || return 1; done
+  for path in "${CODEX_RUNTIME_DATA[@]}" "${CODEX_RUNTIME_EXEC[@]}"; do [[ -f $path ]] || return 1; done
+  [[ -L $CODEX_DIR/node_modules/.bin/codex ]]
+}
+
+app_codex_runtime_security() {
   app_codex_path_security || return
-  [[ -x $CODEX_DIR/node_modules/.bin/codex ]] || return 1
+  app_codex_runtime_present || return
+  local path mode
+  for path in "${CODEX_RUNTIME_DIRS[@]}" "${CODEX_RUNTIME_DATA[@]}" "${CODEX_RUNTIME_EXEC[@]}"; do
+    [[ ! -L $path && $(stat -c %u "$path") == 0 ]] || { fail 'Onveilig Codex-runtimepad'; return 1; }
+    mode=$(stat -c %a "$path") || return
+    (( (8#$mode & 8#7022) == 0 )) || { fail 'Onveilige Codex-runtimerechten'; return 1; }
+  done
+  [[ $(stat -c %u "$CODEX_DIR/node_modules/.bin/codex") == 0 &&
+     $(readlink -f "$CODEX_DIR/node_modules/.bin/codex") == "$CODEX_DIR/node_modules/@openai/codex/bin/codex.js" ]] || return 1
+}
+
+app_codex_permissions_repair() {
+  app_codex_runtime_security || return
+  local path
+  for path in "${CODEX_RUNTIME_DIRS[@]}" "${CODEX_RUNTIME_EXEC[@]}"; do chmod 755 "$path" || return; done
+  for path in "${CODEX_RUNTIME_DATA[@]}"; do chmod 644 "$path" || return; done
+}
+
+app_codex_verify() {
+  app_codex_runtime_security || return
+  local path
+  for path in "${CODEX_RUNTIME_DIRS[@]}" "${CODEX_RUNTIME_EXEC[@]}"; do [[ $(stat -c %a "$path") == 755 ]] || return 1; done
+  for path in "${CODEX_RUNTIME_DATA[@]}"; do [[ $(stat -c %a "$path") == 644 ]] || return 1; done
+  [[ -L $CODEX_LINK && $(readlink "$CODEX_LINK") == "$CODEX_DIR/node_modules/.bin/codex" ]] || return 1
   [[ $("$CODEX_DIR/node_modules/.bin/codex" --version) == "codex-cli $CODEX_VERSION" ]] || return 1
-  [[ -L /usr/local/bin/codex && $(readlink /usr/local/bin/codex) == "$CODEX_DIR/node_modules/.bin/codex" ]]
+  # A real unprivileged execution, with no inherited credentials or root config.
+  [[ $(runuser -u nobody -- env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/nonexistent CODEX_HOME=/nonexistent \
+    "$CODEX_LINK" --version 2>/dev/null) == "codex-cli $CODEX_VERSION" ]] || {
+    fail 'Codex werkt niet zonder rootrechten'; return 1;
+  }
 }
 
 app_codex_install() {
-  local assets="$INSTALLER_DIR/bash/assets/codex" major npm_output npm_work
+  local assets="$INSTALLER_DIR/bash/assets/codex" major npm_work
   major=$(node --version) || return
   major=${major#v}; major=${major%%.*}
   if ! [[ $major =~ ^[0-9]+$ ]] || (( major != 22 && major != 24 )); then
@@ -41,34 +95,36 @@ app_codex_install() {
     fail 'Codex lock-integriteit mislukt'; return 1;
   }
   app_codex_path_security || return
-  app_codex_verify && return 0
-  if [[ -e /usr/local/bin/codex || -L /usr/local/bin/codex ]]; then
-    [[ -L /usr/local/bin/codex && $(readlink /usr/local/bin/codex) == "$CODEX_DIR/node_modules/.bin/codex" ]] || {
+  if [[ -e $CODEX_LINK || -L $CODEX_LINK ]]; then
+    [[ -L $CODEX_LINK && $(readlink "$CODEX_LINK") == "$CODEX_DIR/node_modules/.bin/codex" ]] || {
       fail 'Bestaande Codex-installatie wordt niet overschreven'; return 1;
     }
   fi
-  install -d -m 0755 "$CODEX_DIR" || return
+  if app_codex_runtime_present; then
+    app_codex_permissions_repair || return
+    ln -sfn "$CODEX_DIR/node_modules/.bin/codex" "$CODEX_LINK" || return
+    app_codex_verify
+    return
+  fi
+  [[ ! -L $CODEX_DIR/node_modules ]] || { fail 'Onveilige npm-runtime'; return 1; }
+  # Explicit parent mode: install -d otherwise creates an implicit 0700 parent.
+  install -d -m 0755 "$CODEX_PARENT" "$CODEX_DIR" || return
   (umask 077; printf '%s\n' "$CODEX_VERSION" > "$CODEX_DIR/.uli-managed") || return
   install -m 0644 "$assets/package.json" "$assets/package-lock.json" "$CODEX_DIR/" || return
-  # npm ci safely replaces only managed node_modules, including interrupted runs.
   npm_work=$(mktemp -d /tmp/uli-npm.XXXXXXXX) || return
-  npm_output=$npm_work/output
   install -m 600 /dev/null "$npm_work/user.npmrc" || return
   install -m 600 /dev/null "$npm_work/global.npmrc" || return
-  if ! env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME="$CODEX_DIR" \
+  # Public package runtime only; HOME/cache/config/output remain below private 0700.
+  if ! (umask 022; env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME="$npm_work" \
     npm ci --prefix "$CODEX_DIR" --ignore-scripts --include=optional --engine-strict \
     --registry=https://registry.npmjs.org --userconfig="$npm_work/user.npmrc" --globalconfig="$npm_work/global.npmrc" \
-    --audit=false --fund=false --loglevel=error > "$npm_output" 2>&1; then
-    rm -f -- "$npm_output" "$npm_work/user.npmrc" "$npm_work/global.npmrc"
-    rmdir -- "$npm_work"
+    --audit=false --fund=false --loglevel=error > "$npm_work/output" 2>&1); then
+    rm -rf -- "$npm_work"
     fail 'Codex npm-integriteitsinstallatie mislukt; uitvoer afgeschermd'; return 1
   fi
-  rm -f -- "$npm_output" "$npm_work/user.npmrc" "$npm_work/global.npmrc"
-  rmdir -- "$npm_work"
-  [[ $("$CODEX_DIR/node_modules/.bin/codex" --version) == "codex-cli $CODEX_VERSION" ]] || {
-    fail 'Codex native pakket ontbreekt of versie is onjuist'; return 1;
-  }
-  ln -sfn "$CODEX_DIR/node_modules/.bin/codex" /usr/local/bin/codex || return
+  rm -rf -- "$npm_work"
+  app_codex_permissions_repair || return
+  ln -sfn "$CODEX_DIR/node_modules/.bin/codex" "$CODEX_LINK" || return
   app_codex_verify
 }
 

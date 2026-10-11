@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0-bash.2
+
+- BASH-V1-001: repair root-only Codex permissions using a bounded runtime allowlist and actual unprivileged validation.
+- Private npm HOME/cache/config remains protected; completed bash.1 APP/combined reruns can safely apply the precise patch with versioned resume code.
+- Add real ordinary-user, negative complete-status and old-release repair/reboot regression coverage.
+
 ## 1.0.0-bash.1
 
 - New standalone Bash architecture with APP, DATABASE and combined profile.

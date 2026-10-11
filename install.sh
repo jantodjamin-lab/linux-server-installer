@@ -5,7 +5,7 @@ export LC_ALL=C
 INSTALLER_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 VERSION=$(cat "$INSTALLER_DIR/VERSION")
 for module in common checks state swap app database; do source "$INSTALLER_DIR/bash/$module.sh"; done
-requested='' yes=0 mode=menu
+requested='' yes=0 mode=menu completed_patch_upgrade=0
 while (( $# )); do
   case $1 in
     --profile) (( $# >= 2 )) || { fail 'Profiel ontbreekt'; exit 1; }; requested=$2; shift;;
@@ -52,10 +52,17 @@ fi
 state_prepare
 if [[ $mode == resume ]]; then
   [[ -n $PROFILE ]] || { fail 'Geen geautoriseerd profiel'; exit 1; }
-  [[ $STATE_VERSION == "$VERSION" ]] || { fail 'Versieverschil bij hervatting'; exit 1; }
+  if [[ $STATE_VERSION != "$VERSION" ]]; then
+    if state_codex_patch_eligible && state_codex_patch_authorized; then completed_patch_upgrade=1
+    else fail 'Versieverschil bij hervatting'; exit 1; fi
+  fi
 else
   if [[ -n $PROFILE && $PROFILE != "$requested" ]]; then fail 'Bestaand profiel verschilt; handmatige beoordeling vereist'; exit 1; fi
-  if [[ -n $STATE_VERSION && $STATE_VERSION != "$VERSION" ]]; then fail 'Bestaande status gebruikt een andere installerversie'; exit 1; fi
+  if [[ -n $STATE_VERSION && $STATE_VERSION != "$VERSION" ]]; then
+    if state_codex_patch_eligible; then
+      completed_patch_upgrade=1
+    else fail 'Bestaande status gebruikt een andere installerversie'; exit 1; fi
+  fi
   PROFILE=$requested
 fi
 [[ ! -L $STATE_DIR/install.log ]] || { fail 'Onveilig logbestand'; exit 1; }
@@ -63,14 +70,28 @@ if [[ -e $STATE_DIR/install.log ]]; then
   [[ -f $STATE_DIR/install.log && $(stat -c %u "$STATE_DIR/install.log") == 0 && $(stat -c %a "$STATE_DIR/install.log") == 600 ]] || { fail 'Onveilige logrechten'; exit 1; }
 fi
 exec > >(tee -a "$STATE_DIR/install.log") 2>&1
-if [[ $STATUS == complete ]]; then
-  if ! swap_ensure verify; then fail 'Afgeronde installatie: swapcontrole mislukt; handmatige beoordeling vereist'; exit 1; fi
-  if [[ $PROFILE != app ]] && ! database_verify; then fail 'Afgeronde installatie: DATABASE-componenten wijken af; handmatige beoordeling vereist'; exit 1; fi
-  if [[ $PROFILE != database ]] && ! app_verify; then fail 'Afgeronde installatie: APP-componenten wijken af; handmatige beoordeling vereist'; exit 1; fi
+trap 'result=$?; trap - ERR; fail "Stap ${CURRENT:-verification} onderbroken (exit $result)" || true; STATUS=failed; state_save || true; exit "$result"' ERR
+if [[ $STATUS == complete || ( $STATUS == failed && $CURRENT == verification ) ]]; then
+  verification_was_failed=0
+  [[ $STATUS != failed ]] || verification_was_failed=1
+  CURRENT=verification
+  if (( completed_patch_upgrade )); then
+    if ! state_authorize_codex_patch || ! resume_service_install; then
+      fail 'Rechtenpatch niet voorbereid; oorspronkelijke status behouden, geautoriseerd herhalen vereist' || true
+      exit 1
+    fi
+  fi
+  if ! swap_ensure verify; then STATUS=failed; state_save; fail 'Afgeronde installatie: swapcontrole mislukt; handmatige beoordeling vereist'; exit 1; fi
+  if [[ $PROFILE != app ]] && ! database_verify; then STATUS=failed; state_save; fail 'Afgeronde installatie: DATABASE-componenten wijken af; handmatige beoordeling vereist'; exit 1; fi
+  if [[ $PROFILE != database ]]; then
+    if ! app_codex_permissions_repair || ! app_verify; then STATUS=failed; state_save; fail 'APP-componenten of Codex-gebruikersrechten voldoen niet'; exit 1; fi
+  fi
+  CURRENT='' STATUS=complete
+  if (( completed_patch_upgrade || verification_was_failed )); then state_save; fi
+  if (( completed_patch_upgrade )); then rm -f -- "$STATE_DIR/codex-permissions-patch" || warn 'Patchmarker blijft afgeschermd bewaard'; fi
   pass 'Installatie reeds afgerond en gecontroleerd'; exit
 fi
 STATUS=running; state_save
-trap 'result=$?; trap - ERR; fail "Stap ${CURRENT:-verification} onderbroken (exit $result)" || true; STATUS=failed; state_save || true; exit "$result"' ERR
 resume_service_install
 CURRENT=apt_update; state_save
 run_apt update
@@ -82,7 +103,7 @@ swap_ensure
 CURRENT=''; state_save
 [[ $PROFILE == database ]] || state_step app app_install
 [[ $PROFILE == app ]] || state_step database database_install
-[[ $PROFILE == database ]] || app_verify
+if [[ $PROFILE != database ]]; then app_codex_permissions_repair; app_verify; fi
 [[ $PROFILE == app ]] || database_verify
 CURRENT='' STATUS=complete; state_save
 pass 'Installatie voltooid'

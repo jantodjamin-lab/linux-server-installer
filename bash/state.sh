@@ -44,7 +44,7 @@ state_step() {
   else STATUS=failed; state_save || true; return 1; fi
 }
 resume_service_install() {
-  local target=$STATE_DIR/installer
+  local target=$STATE_DIR/installer-$VERSION
   [[ ! -L $target ]] || { fail 'Onveilige hervatmap'; return 1; }
   if [[ -e $target ]]; then
     [[ -d $target && $(stat -c %u "$target") == 0 && $(stat -c %a "$target") == 700 ]] || { fail 'Onveilige hervatcode'; return 1; }
@@ -104,6 +104,22 @@ EOF_UNIT
   sync -f /etc/systemd/system || return
   systemctl daemon-reload || return
   systemctl enable universal-linux-installer-resume.service || return
+}
+state_codex_patch_eligible() {
+  [[ $STATE_VERSION == 1.0.0-bash.1 && $VERSION == 1.0.0-bash.2 && $STATUS == complete && -z $CURRENT && $PROFILE != database ]]
+}
+state_codex_patch_authorized() {
+  local marker=$STATE_DIR/codex-permissions-patch
+  [[ -f $marker && ! -L $marker && $(stat -c %u "$marker") == 0 && $(stat -c %a "$marker") == 600 &&
+     $(cat "$marker") == "$PROFILE:1.0.0-bash.1:1.0.0-bash.2" ]]
+}
+state_authorize_codex_patch() {
+  local temporary
+  temporary=$(mktemp "$STATE_DIR/.codex-patch.XXXXXXXX") || return
+  chmod 600 "$temporary" || return
+  printf '%s:1.0.0-bash.1:1.0.0-bash.2\n' "$PROFILE" > "$temporary" || return
+  mv -f "$temporary" "$STATE_DIR/codex-permissions-patch" || return
+  sync -f "$STATE_DIR" || return
 }
 state_prepare() {
   [[ ! -L $ROOT/var && ! -L $ROOT/var/lib ]] || { fail 'Onveilige statusbovenmap'; return 1; }

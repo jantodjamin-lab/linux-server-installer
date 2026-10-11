@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 profile=${1:-APP}; scenario=${2:-swap0}
 case $profile in APP|DB|APP+DB) ;; *) exit 2;; esac
-case $scenario in swap0|swap2|swap4|interruption|swap-interruption|transip) ;; *) exit 2;; esac
+case $scenario in swap0|swap2|swap4|interruption|swap-interruption|transip|codex-repair) ;; *) exit 2;; esac
 for cmd in qemu-system-x86_64 qemu-img cloud-localds tar timeout sha256sum base64; do
  command -v "$cmd" >/dev/null || { echo "BLOCKED missing $cmd" >&2; exit 77; }
 done
@@ -14,6 +14,11 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/bash-v1-vm.XXXXXXXX")
 mkdir "$work/artifacts"
 tar -czf "$work/installer.tar.gz" -C "$base" install.sh bash VERSION
 payload=$(base64 -w0 "$work/installer.tar.gz")
+previous_payload=''
+if [[ $scenario == codex-repair ]]; then
+ git -C "$base" archive 7f8e74f0f8fc7892abc10ba5b2f1c5b63f612db1 install.sh bash VERSION | gzip -n > "$work/previous.tar.gz"
+ previous_payload=$(base64 -w0 "$work/previous.tar.gz")
+fi
 cat > "$work/guest.sh" <<'GUEST'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -61,7 +66,37 @@ if [[ ! -e /var/lib/uli-vm-firstboot ]]; then
   chmod 600 /existing-swap; mkswap /existing-swap; swapon /existing-swap
   echo '/existing-swap none swap sw 0 0' >> /etc/fstab
  fi
- if [[ $SCENARIO == swap-interruption ]]; then
+ if [[ $SCENARIO == codex-repair ]]; then
+  bash /opt/previous-installer/install.sh --profile "$PROFILE" --yes
+  /usr/local/bin/codex --version
+  if runuser -u ubuntu -- /usr/local/bin/codex --version >/dev/null 2>&1; then echo 'FAIL previous release did not reproduce root-only Codex'; false; fi
+  cp /var/lib/universal-linux-installer/state /evidence/state-before-codex-repair
+  # Harmless private fixtures prove permissions repair does not expose data.
+  install -d -m 700 /opt/universal-linux-installer/codex/.private-permission-fixture
+  (umask 077; printf 'private regression fixture\n' > /opt/universal-linux-installer/codex/.private-permission-fixture/config)
+  sha256sum /opt/universal-linux-installer/codex/.private-permission-fixture/config > /evidence/private-fixture.sha256
+  # Interrupt precisely after switching the resume unit but before committing
+  # the new state version. The persistent authorization must bridge this reboot.
+  cat > /usr/local/sbin/systemctl <<'SYSTEMCTL_WRAPPER'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ $1 == daemon-reload && -e /var/lib/universal-linux-installer/codex-permissions-patch && ! -e /var/lib/uli-codex-patch-paused ]]; then
+ /usr/bin/systemctl "$@"
+ touch /var/lib/uli-codex-patch-paused
+ echo 'Paused after authorized resume unit switch' > /evidence/codex-patch-pause
+ while :; do sleep 1; done
+fi
+exec /usr/bin/systemctl "$@"
+SYSTEMCTL_WRAPPER
+  chmod 755 /usr/local/sbin/systemctl
+  bash install.sh --profile "$PROFILE" --yes & pid=$!
+  for ((i=0;i<900;i++)); do [[ ! -e /evidence/codex-patch-pause ]] || break; sleep 1; done
+  [[ -e /evidence/codex-patch-pause ]]
+  grep -qx 'version=1.0.0-bash.1' /var/lib/universal-linux-installer/state
+  [[ $(stat -c %a /var/lib/universal-linux-installer/codex-permissions-patch) == 600 ]]
+  cp /var/lib/universal-linux-installer/state /evidence/interrupted-codex-patch-state
+  kill -0 "$pid"
+ elif [[ $SCENARIO == swap-interruption ]]; then
   cat > /usr/local/sbin/dd <<'DD_WRAPPER'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -118,7 +153,41 @@ APT_WRAPPER
    runuser -u ubuntu -- /bin/bash /opt/installer/install.sh --profile DB --yes
    echo 'PASS actual ubuntu entry and sudo escalation completed' > /evidence/sudo-result.txt
   else
+   if [[ $PROFILE == APP && $SCENARIO == swap0 ]]; then
+    # VM-only fault: root succeeds, normal-user verification must block complete.
+    cat > /usr/local/sbin/runuser <<'RUNUSER_WRAPPER'
+#!/usr/bin/env bash
+if [[ $1 == -u && $2 == nobody && -e /var/lib/uli-deny-codex-user ]]; then exit 1; fi
+exec /usr/sbin/runuser "$@"
+RUNUSER_WRAPPER
+    chmod 755 /usr/local/sbin/runuser
+    touch /var/lib/uli-deny-codex-user
+    if bash install.sh --profile "$PROFILE" --yes; then echo 'FAIL root-only verifier allowed complete'; false; fi
+    grep -qx 'status=failed' /var/lib/universal-linux-installer/state
+    /usr/local/bin/codex --version
+    cp /var/lib/universal-linux-installer/state /evidence/root-only-rejected-state
+    rm /var/lib/uli-deny-codex-user
+    echo 'PASS real root-only execution rejection prevents complete' > /evidence/root-only-rejection.txt
+   fi
    bash install.sh --profile "$PROFILE" --yes
+   if [[ $PROFILE == APP && $SCENARIO == swap0 ]]; then
+    touch /var/lib/uli-deny-codex-user
+    if bash install.sh --profile "$PROFILE" --yes; then echo 'FAIL completed root-only Codex accepted'; false; fi
+    grep -qx 'status=failed' /var/lib/universal-linux-installer/state
+    grep -qx 'current=verification' /var/lib/universal-linux-installer/state
+    cp /var/lib/universal-linux-installer/state /evidence/completed-root-only-rejected-state
+    rm /var/lib/uli-deny-codex-user
+    # A verification-only retry must never enter the APT mutation route.
+    cat > /usr/local/sbin/apt-get <<'VERIFY_APT_WRAPPER'
+#!/usr/bin/env bash
+echo 'FAIL unexpected APT during completed verification recovery' > /evidence/unexpected-apt
+exit 1
+VERIFY_APT_WRAPPER
+    chmod 755 /usr/local/sbin/apt-get
+    bash install.sh --resume
+    [[ ! -e /evidence/unexpected-apt ]]
+    rm /usr/local/sbin/apt-get
+   fi
   fi
  fi
  echo REBOOT_REQUIRED > /evidence/result
@@ -174,6 +243,31 @@ else
  command -v python3 >/dev/null || [[ $PROFILE == DB ]]
  if [[ $PROFILE != DB ]]; then
   git --version; dotnet --list-sdks | grep '^10\.'; node --version; npm --version; codex --version; systemctl is-active nginx
+  # Real ordinary user, not merely a root executable-bit check.
+  runuser -u ubuntu -- /usr/local/bin/codex --version > /evidence/codex-normal-user.txt
+  grep -qx 'codex-cli 0.128.0' /evidence/codex-normal-user.txt
+  runuser -u nobody -- env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/nonexistent CODEX_HOME=/nonexistent /usr/local/bin/codex --version > /evidence/codex-unprivileged-probe.txt
+  source bash/common.sh; source bash/app.sh
+  app_codex_verify
+  app_codex_runtime_paths
+  for runtime_path in "${CODEX_RUNTIME_DIRS[@]}" "${CODEX_RUNTIME_DATA[@]}" "${CODEX_RUNTIME_EXEC[@]}"; do
+   [[ $(stat -c %u "$runtime_path") == 0 ]]
+   if runuser -u ubuntu -- test -w "$runtime_path"; then echo 'FAIL user writable Codex runtime'; false; fi
+   stat -c '%u %a %n' "$runtime_path" >> /evidence/codex-runtime-permissions.txt
+  done
+  [[ $(stat -c %a /opt/universal-linux-installer/codex/.uli-managed) == 600 ]]
+  if runuser -u ubuntu -- test -r /opt/universal-linux-installer/codex/.uli-managed; then false; fi
+  # Other APP tools are package-managed; verify their actual nonroot execution.
+  runuser -u ubuntu -- /bin/bash -c 'git --version; python3 --version; dotnet --list-sdks; node --version; npm --version; nginx -v' > /evidence/app-tools-normal-user.txt 2>&1
+  if [[ $SCENARIO == codex-repair ]]; then
+   grep -qx 'version=1.0.0-bash.2' /var/lib/universal-linux-installer/state
+   [[ -d /var/lib/universal-linux-installer/installer && -d /var/lib/universal-linux-installer/installer-1.0.0-bash.2 ]]
+   [[ $(stat -c %a /opt/universal-linux-installer/codex/.private-permission-fixture) == 700 ]]
+   [[ $(stat -c %a /opt/universal-linux-installer/codex/.private-permission-fixture/config) == 600 ]]
+   sha256sum -c /evidence/private-fixture.sha256
+   if runuser -u ubuntu -- test -r /opt/universal-linux-installer/codex/.private-permission-fixture/config; then false; fi
+   echo 'PASS actual bash.1 root-only Codex repaired across interrupted authorized bash.2 upgrade' > /evidence/codex-repair-result.txt
+  fi
  fi
  if [[ $PROFILE != APP ]]; then
   sudo -u postgres psql -Atc 'show server_version' | grep '^18\.'
@@ -194,6 +288,9 @@ script=$(base64 -w0 "$work/guest.sh")
 cat > "$work/user-data" <<EOF2
 #cloud-config
 write_files:
+  - path: /opt/previous.tar.gz
+    encoding: b64
+    content: "$previous_payload"
   - path: /opt/installer.tar.gz
     encoding: b64
     content: $payload
@@ -216,6 +313,7 @@ write_files:
 runcmd:
   - mkdir -p /opt/installer
   - tar -xzf /opt/installer.tar.gz -C /opt/installer
+  - if [ "$scenario" = codex-repair ]; then mkdir -p /opt/previous-installer; tar -xzf /opt/previous.tar.gz -C /opt/previous-installer; fi
   - systemctl enable uli-vm-test.service
   - systemctl start --no-block uli-vm-test.service
 EOF2

@@ -15,6 +15,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+          fetch-depth: 0
       - run: bash tests/run.sh
       - run: bash tests/release.sh
       - run: |
@@ -44,10 +45,13 @@ jobs:
             scenario: swap-interruption
           - profile: DB
             scenario: transip
+          - profile: APP+DB
+            scenario: codex-repair
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Signed Ubuntu image and actual disposable VM installation
         env:
           PROFILE: ${{ matrix.profile }}
