@@ -43,6 +43,8 @@ sh install.sh --profile APP+DB --apply --sudo --snapshot-confirmed --allow-unval
 The flags explicitly acknowledge snapshot and candidate risk. Without them,
 there are separate yes/no questions BEFORE the INSTALL confirmation. Sudo may
 also prompt for its own authorization; the installer never reads that password.
+Explicit sudo delegation precedes the privileged audit and private-plan reads.
+The root process repeats all checks; INSTALL confirmation still precedes target writes.
 Add `--development` for the shipped optional Codex pin (APP profiles only).
 Cloud-image upgrades often require `--system-updates`; this must be explicit.
 Add the same reviewed `--allow-mirror URI` exceptions used during audit.
@@ -74,6 +76,9 @@ auto-yes flag, default acceptance or silent expansion of limits/source policy.
 
 Resolution intentionally WRITES metadata, unlike audit. Run as root, or use
 interactive --sudo:
+Resolve-only never appends an APT source. Required components must already be
+configured; otherwise the refreshed candidate check stops with the missing
+package name. Apply may append the owned universe source after typed authorization.
 
 ```sh
 sh install.sh --profile APP --resolve --out /root/installer-review --refresh-metadata --sudo --system-updates
@@ -93,6 +98,7 @@ need reviewed recovery; never replace their ownership marker to adopt a new plan
 Exit codes: 0 PASS/WARN, 1 failure, 2 argument error, 130 cancellation.
 `--show-diagnostics` prints the redacted private failure tail to stderr only.
 Stdout/JSON and journal events hold bounded code + step + command + exit status.
+Preflight failures also identify failed checks without including their raw output.
 Preserve checkpoints/diagnostics (root-only). A safe network/read-only interruption
 clears pending automatically; packages/swap/config/npm/validate require explicit
 `--recovery-reviewed` AFTER inspecting effects. SIGKILL safe-step recovery follows

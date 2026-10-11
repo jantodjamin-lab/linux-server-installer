@@ -161,7 +161,7 @@ class RC5ResolverTests(unittest.TestCase):
             if binary=='apt-cache' and 'policy' in argv:
                 return 'Candidate: '+('(none)' if argv[-1]==missing else versions[argv[-1]])+'\n'
             if binary=='dpkg-query' and argv[-1].endswith('\n'):
-                return ''.join(n+'\t'+v+'\tinstall ok installed\n' for n,v in installed.items())
+                return ''.join(n+'\t'+v+'\tinstall ok installed'+('\tamd64' if '${Architecture}' in argv[-1] else '')+'\n' for n,v in installed.items())
             if binary=='dpkg-query':
                 if argv[-1] not in installed:raise RuntimeError('missing')
                 return installed[argv[-1]]
@@ -199,6 +199,20 @@ class RC5ResolverTests(unittest.TestCase):
         calls=[]
         with self.assertRaisesRegex(ValueError,'refresh-metadata-authorization'):resolve('DB',fixture(),lambda argv:calls.append(argv))
         self.assertFalse(calls)
+
+    def test_missing_node_candidate_stops_before_solver_error(self):
+        from errors import PackageError, CommandError
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);sources(root);base,calls=self.transport(root,'APP',missing='nodejs')
+            def call(argv):
+                if Path(argv[0]).name=='apt-get' and '-s' in argv:
+                    raise CommandError(argv,100,'Unable to locate package nodejs')
+                return base(argv)
+            with self.assertRaises(PackageError) as caught:
+                resolve('APP',fixture(),call,root=root,refresh_metadata=True)
+            self.assertEqual(caught.exception.package,'nodejs')
+            self.assertTrue(any('update' in argv for argv in calls))
+            self.assertFalse(any('-s' in argv for argv in calls))
 
     def test_removal_missing_candidate_limits_updates(self):
         for options,extra,missing,installed,code in [({},'Remv git\n',None,{},'package-removal-refused'),({},'', 'git',{},'pinned-package-unavailable'),({'max_new_packages':1},'',None,{},'new-package-limit-exceeded'),({},'',None,{'git':'0.1'},'system-update-approval-required'),({'system_updates':True,'max_updates':0},'',None,{'git':'0.1'},'update-limit-exceeded')]:
@@ -282,7 +296,7 @@ class RC5ApplyIntegrationTests(unittest.TestCase):
                     binary=Path(argv[0]).name
                     if binary=='apt-cache' and 'policy' in argv:return 'Candidate: '+versions[argv[-1]]+'\n'
                     if binary=='dpkg-query' and argv[-1].endswith('\n'):
-                        return ''.join(n+'\t'+v+'\tinstall ok installed\n' for n,v in tr.versions.items())
+                        return ''.join(n+'\t'+v+'\tinstall ok installed'+('\tamd64' if '${Architecture}' in argv[-1] else '')+'\n' for n,v in tr.versions.items())
                     if binary=='apt-get' and '-s' in argv and all('=' not in v for v in argv[argv.index('install')+1:]):
                         return ''.join('Inst '+n+' ('+v+' Ubuntu [amd64])\n' for n,v in versions.items() if tr.versions.get(n)!=v)
                     return tr(argv,cwd)

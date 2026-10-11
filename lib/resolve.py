@@ -54,7 +54,6 @@ def resolve(profile, observed, call, *, root='/', development=False, system_upda
     # First unpinned solve. Explicit candidate roots below prevent keeping obsolete
     # cloud-image versions whose metadata has been removed from the archive.
     argv=['/usr/bin/apt-get',*APT_SECURITY,'--no-remove','--no-install-recommends','-s','install']
-    simulation_changes(call([*argv,*required]))
     candidates={}
     for name in required:
         output=call(['/usr/bin/apt-cache','-o','Dir::Cache::pkgcache=','-o','Dir::Cache::srcpkgcache=','policy',name])
@@ -63,13 +62,14 @@ def resolve(profile, observed, call, *, root='/', development=False, system_upda
             from errors import PackageError
             raise PackageError(name)
         candidates[name]=match[1]
+    simulation_changes(call([*argv,*required]))
     changes=simulation_changes(call([*argv,*[name+'='+version for name,version in sorted(candidates.items())]]))
     pins={**candidates,**changes}
     installed={}
     raw=call(['/usr/bin/dpkg-query','-W','-f=${Package}\t${Version}\t${Status}\n'])
     for line in raw.splitlines():
         name,version,status=line.split('\t',2)
-        if status=='install ok installed': installed[name]=version
+        if status in ('install ok installed','hold ok installed'): installed[name]=version
     updates={name:version for name,version in pins.items() if name in installed and installed[name]!=version}
     apt={name:version for name,version in pins.items() if name not in updates}
     new=[name for name in pins if name not in installed]
@@ -89,7 +89,7 @@ def resolve(profile, observed, call, *, root='/', development=False, system_upda
     # Self-test through the exact executor method without its effectful constructor.
     checker=object.__new__(LocalRunner)
     checker.root=root; checker.transport=lambda argv,cwd=None:call(argv)
-    checker.workflow={'allow_mirrors':list(allow_mirrors),'allow_proxy_env':allow_proxy_env}
+    checker.workflow={'allow_mirrors':list(allow_mirrors),'allow_proxy_env':allow_proxy_env,'arch':observed['arch']}
     metadata=checker.package_preflight(pins)
     workflow=build_workflow(profile,observed,lock,development,system_updates,
                             allow_mirrors=allow_mirrors,allow_proxy_env=allow_proxy_env,authorization=authorization)

@@ -2,6 +2,7 @@
 import copy
 import re
 from core import PROFILES, digest, plan
+from errors import PreflightError
 
 APT_NAMES = re.compile(r'[a-z0-9][a-z0-9+.-]*\Z')
 APT_VERSION = re.compile(r'[0-9][A-Za-z0-9.+:~_-]*\Z')
@@ -58,7 +59,7 @@ def build_workflow(profile, observed, lock, development=False, system_updates=Fa
     if not owned and any(port in ports for port in ([8080] if profile == 'APP' else [5432] if profile == 'DB' else [8080, 5432])):
         raise ValueError('existing-listener-conflict')
     if audit['failures']:
-        raise ValueError('preflight-failed')
+        raise PreflightError(audit)
     if lock['updates'] and not system_updates:
         raise ValueError('system-update-approval-required')
     for name, version in {**lock['apt'], **lock['updates']}.items():

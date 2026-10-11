@@ -55,6 +55,7 @@ class Transport:
             if 'postgresql-18' in self.versions:
                 path=self.root/'etc/postgresql/18/main/pg_hba.conf'; path.parent.mkdir(parents=True,exist_ok=True); path.write_text(PGHBA)
         if executable=='dpkg-query':
+            if argv[-1].endswith('\n'):return ''.join(n+'\t'+v+'\tinstall ok installed'+('\tamd64' if '${Architecture}' in argv[-1] else '')+'\n' for n,v in self.versions.items())
             if argv[-1] not in self.versions: raise RuntimeError('missing')
             return self.versions[argv[-1]]
         if executable=='curl': return '<!doctype html><title>Installer ready</title>Installer ready\n'

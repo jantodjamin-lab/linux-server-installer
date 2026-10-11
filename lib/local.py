@@ -198,8 +198,6 @@ class LocalRunner:
             verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',()))
         elif kind == 'apt':
             self.check_sources()
-            from node import verify_key, package_available, verify_releases
-            verify_key(self.root, self.call); verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',())); package_available(self.call, step['pins'])
             if (self.root/'usr/sbin/policy-rc.d').read_text() != SERVICE_BLOCK:
                 raise ValueError('service-start-guard')
             self.package_preflight(step['pins'])
@@ -247,8 +245,9 @@ class LocalRunner:
         from node import verify_key, verify_releases, package_records
         self.check_sources(); verify_key(self.root,self.call)
         verify_releases(self.root,self.call,self.workflow.get('allow_mirrors',())); metadata=package_records(self.call,pins)
+        installed=self.installed_snapshot(pins)
         for name,version in pins.items():
-            current=self.package_version(name)
+            current=installed.get(name)
             if current and current!=version:
                 try:self.call(['/usr/bin/dpkg','--compare-versions',version,'ge',current])
                 except RuntimeError:raise ValueError('package-downgrade-refused') from None
@@ -259,9 +258,39 @@ class LocalRunner:
         for name,version in changes.items():
             if pins.get(name) != version: raise ValueError('unpinned-dependency')
         for name, version in pins.items():
-            if self.package_version(name) != version and changes.get(name) != version:
+            if installed.get(name) != version and changes.get(name) != version:
                 raise ValueError('apt-simulation-incomplete')
         return metadata
+
+    def installed_snapshot(self, pins):
+        """One invocation-local snapshot; never cached across apt mutations."""
+        from workflow import APT_NAMES, APT_VERSION
+        raw=self.call(['/usr/bin/dpkg-query','-W','-f=${Package}\t${Version}\t${Status}\t${Architecture}\n'])
+        architecture={'x86_64':'amd64','aarch64':'arm64'}.get(self.workflow.get('arch'))
+        if architecture is None:raise ValueError('foreign-architecture-package-refused')
+        installed={};seen=set()
+        for line in raw.splitlines():
+            fields=line.split('\t')
+            if len(fields)!=4:raise ValueError('apt-simulation-format')
+            name,version,status,arch=fields
+            parts=name.split(':')
+            if len(parts)>2 or not APT_NAMES.fullmatch(parts[0]) or (len(parts)==2 and not re.fullmatch('[a-z0-9][a-z0-9-]*',parts[1])):
+                raise ValueError('apt-simulation-format')
+            state=status.split()
+            if len(state)!=3 or state[0] not in ('unknown','install','hold','deinstall','purge') or state[1] not in ('ok','reinstreq') or state[2] not in ('not-installed','config-files','half-installed','unpacked','half-configured','triggers-awaited','triggers-pending','installed'):
+                raise ValueError('apt-simulation-format')
+            if not re.fullmatch('[a-z0-9][a-z0-9-]*',arch):raise ValueError('apt-simulation-format')
+            if not version and state[2]=='not-installed':continue
+            if not version or not APT_VERSION.fullmatch(version):raise ValueError('apt-simulation-format')
+            key=parts[0] if parts[0] in pins else name
+            if key in seen:
+                if parts[0] in pins:raise ValueError('foreign-architecture-package-refused')
+                continue
+            seen.add(key)
+            if parts[0] in pins and (arch not in (architecture,'all') or (len(parts)==2 and parts[1]!=architecture)):
+                raise ValueError('foreign-architecture-package-refused')
+            if status in ('install ok installed','hold ok installed'):installed[key]=version
+        return installed
 
     def package_version(self, name):
         try:
@@ -296,7 +325,9 @@ class LocalRunner:
         if kind == 'apt-preflight':
             self.package_preflight(step['pins']); return True
         if kind == 'apt-refresh': return True  # completed command evidence, no cached freshness claim
-        if kind == 'apt': return all(self.package_version(n) == v for n, v in step['pins'].items())
+        if kind == 'apt':
+            installed=self.installed_snapshot(step['pins'])
+            return all(installed.get(n)==v for n,v in step['pins'].items())
         if kind == 'npm':
             base = self.root/'opt/universal-linux-installer'/step['id']
             check_npm_lock(base, step['name'], step)

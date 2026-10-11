@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 import sys
-from errors import WorkflowError, CommandError, PUBLIC_FAILURE_CODES, REMEDIES
+from errors import WorkflowError, CommandError, PreflightError, PREFLIGHT_CHECK_IDS, PUBLIC_FAILURE_CODES, REMEDIES
 from core import BASE, PROFILES, PUBLIC_CODES, inventory, plan, digest
 from workflow import build_workflow, validate_plan_age
 from journal import run_workflow
@@ -42,6 +42,8 @@ def render_summary(report):
     for item in report.get('diagnostics',[]):
         suffix=(' ['+item['package']+']' if item.get('package') else '')+(f" (exit {item['exit_code']})" if 'exit_code' in item else '')
         lines.append(f"FAIL {item.get('step',item.get('stage','operation'))}: {item['code']}"+suffix)
+        failed=[value for value in item.get('failed_checks',[]) if isinstance(value,str) and value in PREFLIGHT_CHECK_IDS]
+        if failed:lines.append('Failed checks: '+', '.join(sorted(set(failed))))
         if item.get('remedy'):lines.append('Remedy: '+item['remedy'])
     if report.get('failures'): lines.append('FAIL reasons: '+', '.join(report['failures']))
     if report.get('code'): lines.append(('FAIL reason: ' if report['status']=='FAIL' else 'Reason: ')+report['code'])
@@ -91,6 +93,14 @@ def main():
     try:
         from sources import mirror_uri
         args.allow_mirror=sorted({mirror_uri(uri) for uri in args.allow_mirror})
+        # An explicitly requested sudo authorization belongs before expensive
+        # probes and before opening root-private reviewed plans. The root child
+        # repeats all audit, plan binding and installation confirmation checks.
+        # This delegation itself refreshes no metadata and changes no config.
+        if (args.apply or args.resolve or args.execute) and os.geteuid()!=0:
+            if not args.sudo:raise ValueError('root-required-use-interactive-sudo')
+            from privilege import interactive_execute
+            return interactive_execute(args)
         observed=inventory(allow_mirrors=args.allow_mirror) if args.allow_mirror else inventory()
         observed['target']=hashlib.sha256(Path('/etc/machine-id').read_bytes()).hexdigest()
         observed['managed']=Path('/var/lib/universal-linux-installer/ownership.json').is_file()
@@ -98,10 +108,6 @@ def main():
             audit=plan(args.profile,observed)
             if audit['status']=='FAIL':
                 print(json.dumps(audit,sort_keys=True,indent=2) if args.json else render_summary(audit));return 1
-            if os.geteuid()!=0:
-                if not args.sudo:raise ValueError('root-required-use-interactive-sudo')
-                from privilege import interactive_execute
-                return interactive_execute(args)
             from apply import run_apply
             report=run_apply(args,observed)
         elif args.execute:
@@ -116,10 +122,6 @@ def main():
             expected=build_workflow(args.profile,observed,workflow['lock'],args.development,args.system_updates,created_at=workflow['created_at'],allow_mirrors=args.allow_mirror,allow_proxy_env=args.allow_proxy_env,authorization=workflow.get('authorization'))
             if expected['steps']!=workflow['steps'] or observed['target']!=workflow['target'] or expected['arch']!=workflow['arch']:
                 raise ValueError('saved-plan-target-or-actions')
-            if os.geteuid()!=0:
-                if not args.sudo: raise ValueError('root-required-use-interactive-sudo')
-                from privilege import interactive_execute
-                return interactive_execute(args)
             runner=LocalRunner(workflow,args.approval,args.snapshot_confirmed,args.allow_unvalidated,bundle=args.npm_bundle or BASE/'bundle')
             report=run_workflow(workflow,runner,args.state_dir,args.recovery_reviewed)
             report['profile']=args.profile
@@ -138,10 +140,10 @@ def main():
                 from swap import regular
                 path=Path(error.diagnostic_path);regular(path,0o600)
                 print(path.read_text(),file=sys.stderr)
-        elif isinstance(error,CommandError):
+        elif isinstance(error,(CommandError,PreflightError)):
             from errors import failure_metadata
             report['diagnostics']=[failure_metadata('operation',error)]
-            if args.show_diagnostics:print(error.stderr_tail,file=sys.stderr)
+            if args.show_diagnostics and isinstance(error,CommandError):print(error.stderr_tail,file=sys.stderr)
         if code in REMEDIES:report['remedy']=REMEDIES[code]
         print(json.dumps(report,sort_keys=True) if args.json or args.lock else render_summary(report))
         return 1

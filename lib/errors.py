@@ -23,6 +23,29 @@ class PackageError(ValueError):
         super().__init__('pinned-package-unavailable')
 
 
+PREFLIGHT_CHECK_IDS = frozenset({
+    'platform','cpu','ram_mib','disk_gib','swap-inventory','swap-preflight',
+    'package-sources','package-source-suites','source-policy','archive-key',
+    'cached-signatures','apt-index-age','packages','node-npm','services',
+    'system-inventory','package-inventory','listener-inventory',
+    'swap-storage-inventory','source-inventory','service-inventory',
+    'package-source-inventory','systemd-required','node-npm-compatibility',
+})
+
+
+class PreflightError(ValueError):
+    """Carry only fixed audit check identifiers, never probe output/details."""
+    def __init__(self, audit):
+        failed={row.get('id') for row in audit.get('checks',[])
+                if isinstance(row,dict) and row.get('status')=='FAIL'
+                and isinstance(row.get('id'),str)
+                and row.get('id') in PREFLIGHT_CHECK_IDS}
+        failed.update(value for value in audit.get('failures',[])
+                      if isinstance(value,str) and value in PREFLIGHT_CHECK_IDS)
+        self.failed_checks=tuple(sorted(failed))
+        super().__init__('preflight-failed')
+
+
 def redact(value):
     value = str(value)
     value = re.sub(r'(?i)([a-z][a-z0-9+.-]*://)[^\s/]*@', r'\1[REDACTED]@', value)
@@ -63,6 +86,7 @@ def failure_metadata(step, error):
     elif isinstance(error, ValueError) and error.args and str(error.args[0]) in PUBLIC_FAILURE_CODES:
         code = error.args[0]
     result = {'step': step, 'code': code}
+    if isinstance(error,PreflightError):result['failed_checks']=list(error.failed_checks)
     package=getattr(error,'package',None)
     if isinstance(package,str) and re.fullmatch(r'[a-z0-9][a-z0-9+.-]{0,127}',package):result['package']=package
     if code in REMEDIES:result['remedy']=REMEDIES[code]

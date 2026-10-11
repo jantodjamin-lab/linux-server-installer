@@ -7,7 +7,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 BASE=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('e2e_guest_test',BASE/'tools/e2e-guest.py')
@@ -21,11 +21,61 @@ class SudoPromptSafety(unittest.TestCase):
         self.assertTrue(guest.sudo_password_prompt(b'[sudo: authenticate] Password: ',False))
         self.assertTrue(guest.sudo_password_prompt(b'\x1b[1m[sudo: authenticate] Password:\x1b[0m ',False))
 
+    def test_buffered_prompt_can_be_rechecked_after_echo_changes_without_new_output(self):
+        buffered=b'[sudo: authenticate] Password: '
+        self.assertFalse(guest.sudo_password_prompt(buffered,True))
+        self.assertTrue(guest.sudo_password_prompt(buffered,False))
+
     def test_echo_enabled_or_unknown_prompt_never_receives_secret(self):
         self.assertFalse(guest.sudo_password_prompt(b'[sudo] password for fixture: ',True))
         self.assertFalse(guest.sudo_password_prompt(b'[sudo: authenticate] Password: ',True))
         self.assertFalse(guest.sudo_password_prompt(b'Password: ',False))
         self.assertFalse(guest.sudo_password_prompt(b'[sudo: authenticate] Password: \nother output',False))
+
+
+class ProbeCleanupSafety(unittest.TestCase):
+    def test_cleanup_own_group_and_only_matching_descendant_start_ticks(self):
+        process=SimpleNamespace(pid=901,wait=Mock(return_value=-9))
+        def proc(path):
+            fields=['S']+['0']*19
+            fields[19]='11' if '/902/' in str(path) else '99'
+            return SimpleNamespace(read_text=lambda:'902 (fixture) '+ ' '.join(fields))
+        rows=[{'pid':902,'start_tick':11},{'pid':903,'start_tick':12}]
+        with patch.object(guest.os,'getpgrp',return_value=900), patch.object(guest.os,'killpg') as groups, \
+             patch.object(guest.os,'kill') as signals, patch.object(guest,'Path',side_effect=proc):
+            guest.stop_probe(process,rows)
+        groups.assert_called_once_with(901,guest.signal.SIGKILL)
+        signals.assert_called_once_with(902,guest.signal.SIGKILL)
+        process.wait.assert_called_once_with(timeout=15)
+
+    def test_cleanup_refuses_the_test_runner_process_group(self):
+        process=SimpleNamespace(pid=901,wait=Mock())
+        with patch.object(guest.os,'getpgrp',return_value=901), patch.object(guest.os,'killpg') as groups:
+            with self.assertRaisesRegex(AssertionError,'unrelated'):guest.stop_probe(process,[])
+        groups.assert_not_called()
+
+
+class ExactAptContention(unittest.TestCase):
+    def test_only_actual_install_receives_lock_not_simulations_or_refresh(self):
+        self.assertTrue(guest.is_real_apt_install(['/usr/bin/apt-get','-o','DPkg::Lock::Timeout=600','--no-remove','-y','install','git=1']))
+        self.assertFalse(guest.is_real_apt_install(['/usr/bin/apt-get','-s','install','git=1']))
+        self.assertFalse(guest.is_real_apt_install(['/usr/bin/apt-get','--simulate','install','git=1']))
+        self.assertFalse(guest.is_real_apt_install(['/usr/bin/apt-get','update']))
+        self.assertFalse(guest.is_real_apt_install(['/usr/bin/npm','install']))
+
+    def test_short_refusal_probe_preserves_every_pin_and_security_option(self):
+        command=['/usr/bin/apt-get','-o','APT::Get::AllowUnauthenticated=false','-o','DPkg::Lock::Timeout=600','--no-remove','-y','install','git=1','curl=2']
+        probe=guest.lock_probe_argv(command)
+        self.assertEqual(command[4],'DPkg::Lock::Timeout=600')
+        self.assertEqual(probe[:4],command[:4]);self.assertEqual(probe[5:],command[5:])
+        self.assertEqual(probe[4],'DPkg::Lock::Timeout=2')
+        with self.assertRaises(AssertionError):guest.lock_probe_argv(['/usr/bin/apt-get','install','git=1'])
+        with self.assertRaises(AssertionError):guest.lock_probe_argv(command+['-o','DPkg::Lock::Timeout=3'])
+
+    def test_long_preflight_or_absent_lock_cannot_substitute_actual_wait(self):
+        with self.assertRaisesRegex(AssertionError,'actual apt install'):guest.require_apt_wait(0.1,True)
+        with self.assertRaisesRegex(AssertionError,'not held'):guest.require_apt_wait(30,False)
+        guest.require_apt_wait(25,True)
 
 
 class ColdBootEvidence(unittest.TestCase):

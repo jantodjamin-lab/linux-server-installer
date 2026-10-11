@@ -23,7 +23,7 @@ from apply import request
 from core import inventory, plan
 from cli import main
 from journal import Journal
-from errors import redact
+from errors import redact, CommandError
 
 
 def checked(argv):return subprocess.run(argv,check=True,text=True,capture_output=True).stdout
@@ -34,6 +34,43 @@ def sudo_password_prompt(output, echo_enabled=False):
     clean=re.sub(rb'\x1b\[[0-?]*[ -/]*[@-~]',b'',bytes(output)).strip().lower()
     known=b'[sudo] password for ' in clean or b'[sudo: authenticate] password:' in clean
     return known and clean.endswith(b':') and not echo_enabled
+
+
+def probe_process_snapshot(pid):
+    """Bounded descendant states only; never command arguments/environment."""
+    rows={}
+    for directory in Path('/proc').iterdir():
+        if not directory.name.isdigit():continue
+        try:
+            fields=(directory/'stat').read_text().rsplit(')',1)[1].split()
+            executable=Path(os.readlink(directory/'exe')).name
+            allowed=executable in {'runuser','sh','dash','bash','sudo','sudo-rs','apt-cache','dpkg-query','gpg','gpgv'} or bool(re.fullmatch(r'python3(?:\.[0-9]+)?',executable))
+            wait=(directory/'wchan').read_text().strip()
+            rows[int(directory.name)]={'pid':int(directory.name),'parent':int(fields[1]),'group':int(fields[2]),'session':int(fields[3]),
+                                      'state':fields[0],'tty_device':int(fields[4]),'foreground_group':int(fields[5]),'binary':executable if allowed else 'other','start_tick':int(fields[19]),
+                                      'wait':wait if re.fullmatch(r'[A-Za-z0-9_]{1,80}',wait) else 'unknown'}
+        except (OSError,ValueError,IndexError):continue
+    owned={pid}
+    for _ in range(16):
+        discovered={number for number,row in rows.items() if row['parent'] in owned}
+        if discovered<=owned:break
+        owned.update(discovered)
+    return [rows[number] for number in sorted(owned) if number in rows][:32]
+
+
+def stop_probe(process, snapshot):
+    """Terminate only our isolated probe session and snapshotted descendants."""
+    assert process.pid>1 and process.pid!=os.getpgrp(),'refusing unrelated process group'
+    try:os.killpg(process.pid,signal.SIGKILL)
+    except ProcessLookupError:pass
+    # sudo may create a separate child session. Check start tick against PID
+    # reuse before killing only descendants proven in our snapshot.
+    for row in reversed(snapshot):
+        try:
+            fields=Path('/proc/'+str(row['pid'])+'/stat').read_text().rsplit(')',1)[1].split()
+            if int(fields[19])==row['start_tick']:os.kill(row['pid'],signal.SIGKILL)
+        except (OSError,ValueError,IndexError):pass
+    process.wait(timeout=15)
 
 
 def sudo_evidence(profile):
@@ -53,7 +90,7 @@ def sudo_evidence(profile):
         if found.returncode!=0:
             evidence['status']='FAIL';evidence['cases'][mode]={'status':'FAIL','code':'fixture-user-missing'}
             continue
-        master,slave=pty.openpty();output=bytearray();sent=False;process=None;status=None;failure=None
+        master,slave=pty.openpty();output=bytearray();sent=False;process=None;status=None;failure=None;states=[];terminal={}
         def session():
             os.setsid();fcntl.ioctl(0,termios.TIOCSCTTY,0)
         argv=['/usr/sbin/runuser','-u',user,'--','sh',str(BASE/'install.sh'),
@@ -64,7 +101,7 @@ def sudo_evidence(profile):
         try:
             process=subprocess.Popen(argv,stdin=slave,stdout=slave,stderr=slave,preexec_fn=session,close_fds=True)
             os.close(slave);slave=None
-            deadline=time.monotonic()+90
+            deadline=time.monotonic()+600
             while True:
                 if time.monotonic()>deadline:raise AssertionError('sudo-fixture-timeout')
                 if select.select([master],[],[],0.1)[0]:
@@ -74,9 +111,12 @@ def sudo_evidence(profile):
                         raise
                     if not chunk:break
                     output.extend(chunk)
-                    if password and not sent and sudo_password_prompt(output,bool(termios.tcgetattr(master)[3]&termios.ECHO)):
-                        os.write(master,password.encode()+b'\n');sent=True
                 elif process.poll() is not None:break
+                # A prompt can be flushed before sudo disables terminal echo.
+                # Recheck the SAME buffered prompt on every poll, not only when
+                # another output chunk arrives; send exactly once after ECHO off.
+                if password and not sent and sudo_password_prompt(output,bool(termios.tcgetattr(master)[3]&termios.ECHO)):
+                    os.write(master,password.encode()+b'\n');sent=True
             status=process.wait(timeout=10)
             assert secret.encode() not in output,'sudo-fixture-secret-echoed'
             assert status==1 and b'intent-approval-mismatch' in output,'sudo-approval-refusal-not-reached'
@@ -84,9 +124,12 @@ def sudo_evidence(profile):
             else:assert not any(marker in output.lower() for marker in (b'[sudo] password for ',b'[sudo: authenticate] password:')),'sudo-nopasswd-prompt-unexpected'
         except Exception as error:
             failure=str(error) if isinstance(error,AssertionError) else type(error).__name__
+            if process is not None:states=probe_process_snapshot(process.pid)
+            try:terminal={'foreground_group':os.tcgetpgrp(master),'echo_enabled':bool(termios.tcgetattr(master)[3]&termios.ECHO),'output_bytes':len(output)}
+            except OSError:terminal={'status':'unavailable','output_bytes':len(output)}
             evidence['status']='FAIL'
         finally:
-            if process is not None and process.poll() is None:process.kill();process.wait()
+            if process is not None and process.poll() is None:stop_probe(process,states or probe_process_snapshot(process.pid))
             os.close(master)
             if slave is not None:os.close(slave)
         # Redact exact fixture secret BEFORE bounded general redaction. No raw
@@ -94,7 +137,7 @@ def sudo_evidence(profile):
         safe=redact(output.decode(errors='replace').replace(secret,'[REDACTED]'))
         path=Path('/e2e-artifacts')/('sudo-'+mode+'.log');path.write_text(safe);path.chmod(0o600)
         evidence['cases'][mode]={'status':'FAIL' if failure else 'PASS','code':failure or 'authenticated-approval-refused-no-effects',
-                                 'exit_code':status,'password_prompt_seen':sent,'diagnostic':path.name}
+                                 'exit_code':status,'password_prompt_seen':sent,'diagnostic':path.name,'process_states':states,'terminal_state':terminal,'deadline_seconds':600}
     Path('/e2e-artifacts/sudo-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
     return evidence
 
@@ -129,45 +172,109 @@ def invoke(profile, kill_event=0, review=False, contention=False):
     return subprocess.run(argv,check=False,capture_output=True,text=True)
 
 
+def is_real_apt_install(argv):
+    simulation={'-s','--simulate','--dry-run','--just-print','--no-act','--recon'}
+    return bool(argv and Path(argv[0]).name=='apt-get' and 'install' in argv and not simulation.intersection(argv))
+
+
+def require_apt_wait(elapsed, held_at_start, minimum=23):
+    assert held_at_start,'frontend lock fixture was not held when apt install started'
+    assert minimum>0 and elapsed>=minimum,'actual apt install did not wait on frontend-lock fixture'
+
+
+def lock_probe_argv(argv):
+    """Same approved exact install; only shorten the lock wait to force refusal."""
+    result=list(argv)
+    positions=[i for i,value in enumerate(result) if value.startswith('DPkg::Lock::Timeout=')]
+    assert len(positions)==1,'missing unique apt lock timeout for refusal probe'
+    position=positions[0]
+    assert position>0 and result[position-1]=='-o','invalid apt lock timeout option'
+    result[position]='DPkg::Lock::Timeout=2'
+    return result
+
+
+def contention_call(actual, runner, argv, cwd=None):
+    """Inject immediately around actual install transport, never its preflight."""
+    read_fd,write_fd=os.pipe();locker=None;unattended=None;dryrun_output=None;evidence={};started=None
+    try:
+        blocker="import fcntl,os,time;f=open('/var/lib/dpkg/lock-frontend','a');fcntl.lockf(f,fcntl.LOCK_EX);os.write("+str(write_fd)+",b'L');os.close("+str(write_fd)+");time.sleep(25)"
+        locker=subprocess.Popen(['/usr/bin/python3','-c',blocker],pass_fds=(write_fd,))
+        os.close(write_fd);write_fd=None
+        assert select.select([read_fd],[],[],10)[0],'frontend lock fixture readiness timeout'
+        assert os.read(read_fd,1)==b'L','frontend lock fixture did not acquire lock'
+        lock_ready=time.monotonic()
+        dryrun_output=open('/e2e-artifacts/unattended-dry-run.log','w')
+        os.chmod('/e2e-artifacts/unattended-dry-run.log',0o600)
+        unattended=subprocess.Popen(['/usr/bin/unattended-upgrade','--dry-run','--debug'],stdout=dryrun_output,stderr=subprocess.STDOUT)
+        probe_started=time.monotonic()
+        try:
+            actual(runner,lock_probe_argv(argv),cwd=cwd)
+        except CommandError as error:
+            assert error.exit_code==100 and 'lock-frontend' in error.stderr_tail,'APT probe did not refuse the held frontend lock'
+            probe_code=error.exit_code
+        else:raise AssertionError('APT lock-refusal probe unexpectedly performed an install')
+        probe_elapsed=time.monotonic()-probe_started
+        remaining=25-(time.monotonic()-lock_ready)
+        assert remaining>2,'frontend fixture expired before actual install wait proof'
+        required_wait=remaining-2
+        held=locker.poll() is None
+        evidence={'lock_fixture':'python-fcntl-real-dpkg-frontend-lock','lock_ready_handshake':True,
+                  'dry_run_command':['/usr/bin/unattended-upgrade','--dry-run','--debug'],'dry_run_pid':unattended.pid,
+                  'lock_held_at_actual_install_start':held,'actual_command':['apt-get','install'],
+                  'short_probe_exit_code':probe_code,'short_probe_lock_refusal':True,'short_probe_elapsed_seconds':probe_elapsed,
+                  'expected_remaining_lock_seconds':remaining,'minimum_proven_wait_seconds':required_wait}
+        evidence['status']='STARTED'
+        Path('/e2e-artifacts/contention-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
+        started=time.monotonic()
+        result=actual(runner,argv,cwd=cwd)
+        elapsed=time.monotonic()-started
+        require_apt_wait(elapsed,held,minimum=required_wait)
+        locker.wait(timeout=60)
+        dry_run_exit=unattended.wait(timeout=90)
+        dryrun_output.close();dryrun_output=None
+        raw=Path('/e2e-artifacts/unattended-dry-run.log').read_text()
+        Path('/e2e-artifacts/unattended-dry-run.log').write_text(redact(raw))
+        assert dry_run_exit==0 or (dry_run_exit==1 and 'lock' in raw.lower()),'Unattended dry-run failed for an unexpected reason'
+        evidence.update({'status':'PASS','actual_apt_install_elapsed_seconds':elapsed,'dry_run_exit_code':dry_run_exit,
+                         'dry_run_result':'completed' if dry_run_exit==0 else 'expected-lock-refusal'})
+        Path('/e2e-artifacts/contention-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
+        return result
+    finally:
+        if evidence and evidence.get('status')!='PASS':
+            evidence['status']='FAIL-incomplete-install-proof'
+            if started is not None:evidence['actual_apt_install_elapsed_seconds']=time.monotonic()-started
+            Path('/e2e-artifacts/contention-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
+        os.close(read_fd)
+        if write_fd is not None:os.close(write_fd)
+        for process in (locker,unattended):
+            if process is not None and process.poll() is None:
+                process.terminate()
+                try:process.wait(timeout=10)
+                except subprocess.TimeoutExpired:process.kill();process.wait()
+        if dryrun_output is not None:dryrun_output.close()
+        log=Path('/e2e-artifacts/unattended-dry-run.log')
+        if log.is_file():log.write_text(redact(log.read_text()))
+
+
 def fault_child(event, contention, argv):
     if os.geteuid()!=0 or not Path('/etc/universal-installer-disposable-e2e').is_file() or not Path('/run/systemd/system').is_dir():
         raise SystemExit('Refusing: disposable VM marker/root/systemd required')
-    # Test-only deterministic fault hook; NEVER shipped as a target CLI flag or
-    # activated through a production environment variable.
-    original=Journal.event;counter=0;locker=None;started=None;unattended=None;dryrun_output=None
+    from local import LocalRunner
+    original=Journal.event;actual_call=LocalRunner.call;counter=0;injected=False
     def fault(journal,*args,**kwargs):
-        nonlocal counter,locker,started,unattended,dryrun_output
+        nonlocal counter
         original(journal,*args,**kwargs);counter+=1
         if event and counter==event:os.kill(os.getpid(),signal.SIGKILL)
-        if contention and args==('STARTED','packages'):
-            blocker="import fcntl,time;f=open('/var/lib/dpkg/lock-frontend','a');fcntl.lockf(f,fcntl.LOCK_EX);time.sleep(25)"
-            locker=subprocess.Popen(['/usr/bin/python3','-c',blocker])
-            time.sleep(1);started=time.monotonic()
-            # Real utility dry-run, concurrently with an explicitly injected
-            # frontend-lock fixture. Never disguise the fixture as a daemon.
-            dryrun_output=open('/e2e-artifacts/unattended-dry-run.log','w')
-            os.chmod('/e2e-artifacts/unattended-dry-run.log',0o600)
-            unattended=subprocess.Popen(['/usr/bin/unattended-upgrade','--dry-run','--debug'],stdout=dryrun_output,stderr=subprocess.STDOUT)
-            evidence={'lock_fixture':'python-fcntl-real-dpkg-frontend-lock','dry_run_command':['/usr/bin/unattended-upgrade','--dry-run','--debug'],
-                      'dry_run_pid':unattended.pid,'simultaneous_fixture_lock':locker.poll() is None}
-            Path('/e2e-artifacts/contention-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
-        if contention and args==('VALIDATED','packages'):
-            assert time.monotonic()-started>=23,'APT did not wait on dpkg contention'
-            locker.wait(timeout=60)
-            try:dry_run_exit=unattended.wait(timeout=90)
-            except subprocess.TimeoutExpired:
-                unattended.terminate();unattended.wait(timeout=15)
-                raise AssertionError('Actual unattended-upgrade dry-run exceeded bound')
-            finally:dryrun_output.close()
-            evidence=json.loads(Path('/e2e-artifacts/contention-evidence.json').read_text())
-            raw=Path('/e2e-artifacts/unattended-dry-run.log').read_text()
-            Path('/e2e-artifacts/unattended-dry-run.log').write_text(redact(raw))
-            assert dry_run_exit==0 or (dry_run_exit==1 and 'lock' in raw.lower()),'Unattended dry-run failed for an unexpected reason'
-            evidence.update({'apt_step_elapsed_seconds':time.monotonic()-started,'dry_run_exit_code':dry_run_exit,
-                             'dry_run_result':'completed' if dry_run_exit==0 else 'expected-lock-refusal'})
-            Path('/e2e-artifacts/contention-evidence.json').write_text(json.dumps(evidence,indent=2)+'\n')
-    Journal.event=fault
-    sys.argv=['installer',*argv];raise SystemExit(main())
+    def transport(runner,command,cwd=None):
+        nonlocal injected
+        if contention and not injected and is_real_apt_install(command):
+            injected=True
+            return contention_call(actual_call,runner,command,cwd)
+        return actual_call(runner,command,cwd=cwd)
+    Journal.event=fault;LocalRunner.call=transport
+    sys.argv=['installer',*argv];status=main()
+    if contention and status==0:assert injected,'contention fixture missed actual apt install'
+    raise SystemExit(status)
 
 
 def postboot_proof(marker):

@@ -64,7 +64,7 @@ def inventory(root='/', query_fn=None, allow_mirrors=()):
     except PROBE_ERRORS as error: failure('system-inventory',error)
     try:
         raw=call(['/usr/bin/dpkg-query','-W','-f=${Package}\t${Version}\t${Status}\n'])
-        result['packages']={p:v for p,v,s in (line.split('\t',2) for line in raw.splitlines()) if s=='install ok installed'}
+        result['packages']={p:v for p,v,s in (line.split('\t',2) for line in raw.splitlines()) if s in ('install ok installed','hold ok installed')}
     except PROBE_ERRORS as error: failure('package-inventory',error,'dpkg-query')
     try:
         raw=call(['/usr/bin/ss','-H','-ltn'])

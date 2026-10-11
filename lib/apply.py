@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import sys
 from core import BASE, digest, plan
-from errors import CommandError, WorkflowError, failure_metadata
+from errors import CommandError, WorkflowError, PreflightError, failure_metadata
 from journal import Journal, private_directory
 from local import LocalRunner, command
 from resolve import resolve, npm_pins
@@ -30,7 +30,9 @@ def request(args, observed, mode='apply', root='/'):
 def request_summary(intent, observed):
     lines=['Authorize '+intent['mode']+' | '+intent['profile'],
            'APT index will be refreshed AFTER confirmation (writes /var/lib/apt/lists).',
-           'Missing universe components may be appended to one owned source file.',
+           ('Missing universe components may be appended to one owned source file.'
+            if intent['mode']=='apply' else
+            'APT source configuration remains unchanged; missing components must be reviewed separately.'),
            'Only profile packages + exact signed dependency closure; --no-remove; no downgrades.',
            'Limits: '+str(intent['limits']['max_new_packages'])+' new packages; '+str(intent['limits']['max_updates'])+' updates.',
            'Updates: '+('explicitly enabled' if intent['system_updates'] else 'forbidden; stop if closure requires updates'),
@@ -104,12 +106,13 @@ def prepare_sources(profile, arch, mirrors, call, root='/'):
 
 
 def authorized_resolution(args, observed, intent, directory, call, root='/'):
+    source_effectful=intent['mode']=='apply'
     with Journal(directory/'preparation',intent['request_id']) as journal:
         pending=journal.state['pending']
         if pending:
-            if pending=='sources' and not args.recovery_reviewed: raise ValueError('uncertain-effects-review-required')
+            if pending=='sources' and source_effectful and not args.recovery_reviewed: raise ValueError('uncertain-effects-review-required')
             journal.state['pending']=None
-            journal.event('RECOVERY_REVIEWED' if pending=='sources' else 'AUTO_CLEARED',pending)
+            journal.event('RECOVERY_REVIEWED' if pending=='sources' and source_effectful else 'AUTO_CLEARED',pending)
         for stage in ('cloud-init','sources','resolve'):
             if stage in journal.state['done'] and stage!='resolve': continue
             journal.state['pending']=stage;journal.event('STARTED',stage)
@@ -126,7 +129,12 @@ def authorized_resolution(args, observed, intent, directory, call, root='/'):
                 elif stage=='sources':
                     current=[e for e in read_sources(root,args.allow_mirror)['entries'] if e['source_file']!='universal-node-universe.sources']
                     if current!=intent['source_policy']:raise ValueError('source-policy-changed')
-                    prepare_sources(args.profile,observed['arch'],args.allow_mirror,call,root)
+                    if source_effectful:
+                        prepare_sources(args.profile,observed['arch'],args.allow_mirror,call,root)
+                    else:
+                        from sources import validate_sources
+                        from node import verify_key
+                        validate_sources(root,args.allow_mirror);verify_key(root,call)
                 else:
                     workflow=resolve(args.profile,observed,call,root=root,development=args.development,
                                      system_updates=args.system_updates,allow_mirrors=args.allow_mirror,
@@ -144,9 +152,10 @@ def authorized_resolution(args, observed, intent, directory, call, root='/'):
                     diagnostic_path=logs/(stage+'-'+str(len(journal.state['events'])+1)+'.log')
                     private_write(logs,diagnostic_path.name,error.stderr_tail)
                 journal.event('FAILED',**metadata)
-                if stage!='sources':
+                if stage!='sources' or not source_effectful:
                     journal.state['pending']=None;journal.event('AUTO_CLEARED',stage)
-                private_write(directory,'SUMMARY.txt',request_summary(intent,observed)+'\nFAIL '+stage+': '+metadata['code']+(' ['+metadata['package']+']' if metadata.get('package') else '')+'\n'+metadata.get('remedy','')+'\nSee preparation/journal.json and private diagnostics.\n')
+                failed_checks=('\nFailed checks: '+', '.join(metadata['failed_checks'])) if metadata.get('failed_checks') else ''
+                private_write(directory,'SUMMARY.txt',request_summary(intent,observed)+'\nFAIL '+stage+': '+metadata['code']+(' ['+metadata['package']+']' if metadata.get('package') else '')+failed_checks+'\n'+metadata.get('remedy','')+'\nSee preparation/journal.json and private diagnostics.\n')
                 raise WorkflowError(metadata,diagnostic_path,directory) from None
             if stage not in journal.state['done']:journal.state['done'].append(stage)
             journal.state['pending']=None;journal.event('VALIDATED',stage)
@@ -194,7 +203,7 @@ def run_apply(args, observed, *, root='/', transport=None):
     root=Path(root).absolute()
     if root==Path('/') and os.geteuid()!=0: raise ValueError('root-required-use-interactive-sudo')
     audit=plan(args.profile,observed)
-    if audit['failures']: raise ValueError('preflight-failed')
+    if audit['failures']: raise PreflightError(audit)
     for check in audit['checks']:
         if check['status']=='WARN':
             print('WARN '+check['id']+': '+check['detail'],file=sys.stderr)
