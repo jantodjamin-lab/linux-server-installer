@@ -1,6 +1,6 @@
 # Universal Linux Server Installer — Bash V1
 
-**BASH-V1-001 validation in progress: NO-GO until bash.2 real permissions and reboot tests pass.** See [correction and evidence](docs/BASH-V1-001.md). Prior bash.1 root-only validation is historical.
+**BASH-V1-001 acceptance: PASS on actual Ubuntu 26.04.1 amd64/ext4 VMs, including ordinary-user Codex execution and reboot repair.** See [correction, test evidence and limits](docs/BASH-V1-001.md). Final public-download verification is attached to release `v1.0.0-bash.2`. Prior bash.1 root-only validation is historical.
 
 Active installer code is Bash. Python 3 is installed only as an APP development tool.
 The previous implementation is **CLOSED – SUPERSEDED BY BASH V1** and retained under `archive/`.

@@ -9,3 +9,11 @@ An interrupted step is rechecked before retry. Swap creation records ownership a
 Inspect status using menu option 4 or `bash install.sh --audit`. Inspect the root-only state/log and `journalctl -u universal-linux-installer-resume.service` as an administrator. Logs intentionally omit raw package output that could expose authenticated source URLs. Do not source or edit state files to bypass checks.
 
 Before manual recovery, retain state and logs, identify the exact interrupted step and review package-manager/database health. Fix the underlying problem, then rerun the verified installer. A version mismatch requires operator review; do not replace the staged copy during a pending installation.
+
+## Completed bash.1 Codex permissions repair
+
+The verified bash.2 installer permits one bounded migration: a completed bash.1 APP or APP+DATABASE installation with no interrupted step. Run `bash install.sh`, select the original profile and confirm the plan. It repairs only the allowlisted root-owned Codex runtime permissions and verifies existing services and swap. It does not repeat package installation. Incomplete or unrelated version migrations remain blocked.
+
+Resume code is staged under a root-only versioned directory. A mode-0600 authorization marker permits automatic recovery if reboot occurs after switching the service to bash.2 but before committing the new state version. The old staged code is retained. Preparation failure preserves the original state and requires an authorized retry.
+
+Failure of a completed installation's mandatory verification records `failed` with `current=verification`. Its subsequent resume remains verification-only; `complete` is restored only after every required check succeeds. Unsafe ownership, symlinks or writable runtime paths stop repair rather than being silently accepted.

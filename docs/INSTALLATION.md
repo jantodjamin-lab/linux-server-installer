@@ -19,3 +19,9 @@ At least 4 GiB total active swap is required after authorization. With 0 GiB the
 New swap files use mode 0600, `mkswap`, `swapon` and one persistent `/etc/fstab` entry. Existing swap remains untouched. Unsupported filesystems or insufficient free space stop the installation. Less than 4 GiB physical RAM produces WARN: swap cannot replace adequate RAM.
 
 Persistence is verified again on reboot by the resume/verification service. A successfully activated file before reboot does not by itself prove reboot persistence; see the acceptance report.
+
+## Codex permissions (bash.2)
+
+The pinned Codex runtime remains root-owned. Only its required directories and executables are mode 0755; package metadata is 0644. Ordinary users cannot modify these paths. Private markers, temporary npm configuration/cache and unrelated files are not made public. No recursive permission reset is used.
+
+Completion requires actual `codex --version` execution as both root and unprivileged `nobody`, with a clean environment for the latter. Authentication to use Codex is a separate user action; this installer does not distribute credentials. See [BASH-V1-001](BASH-V1-001.md) for real ordinary-user tests.

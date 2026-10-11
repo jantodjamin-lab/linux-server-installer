@@ -1,5 +1,5 @@
 # Bash V1 acceptance evidence
-> Historical bash.1 acceptance only: Codex was checked as root. See BASH-V1-001.md for the bash.2 correction and current normal-user evidence.
+> Historical bash.1 acceptance only: Codex was checked as root. See BASH-V1-001.md for the bash.2 correction and current normal-user evidence. The original source manifest is now `evidence/BASH1-TESTED-INSTALLER.sha256`; `evidence/TESTED-INSTALLER.sha256` describes bash.2.
 
 
 **PASS — real installation acceptance completed, 2026-10-11.** Production GO additionally requires independent public-download verification, attached to the release as `PUBLICATION-VERIFICATION.md`.
