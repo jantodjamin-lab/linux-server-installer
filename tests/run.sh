@@ -20,6 +20,11 @@ MOCK
 chmod +x "$work/bin/stat"
 source "$base/bash/common.sh"
 source "$base/bash/state.sh"
+source "$base/bash/checks.sh"
+VERSION=installer-version-sentinel
+checks_system >/dev/null 2>&1 || true
+[[ $VERSION == installer-version-sentinel ]]
+ok 'OS detection preserves installer version namespace'
 VERSION=1.0.0-test PROFILE=app STATUS=running CURRENT='' COMPLETED=''
 state_save
 PROFILE=''; state_load; [[ $PROFILE == app ]]

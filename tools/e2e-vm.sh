@@ -154,7 +154,12 @@ else
   systemctl is-active postgresql
  fi
  swapon --show > /evidence/swap-after-reboot.txt
- cp -a /var/lib/universal-linux-installer /evidence/state
+ # Whitelist metadata only: never export swap contents, VM disks or guest keys.
+ mkdir -p /evidence/state
+ for metadata in state swap-owner install.log; do
+  [[ ! -f /var/lib/universal-linux-installer/$metadata ]] || cp -- /var/lib/universal-linux-installer/"$metadata" /evidence/state/
+ done
+ journalctl --no-pager -u universal-linux-installer-resume.service > /evidence/resume-journal.txt
  echo PASS > /evidence/result; sync; systemctl poweroff
 fi
 GUEST

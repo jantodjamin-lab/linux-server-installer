@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 checks_system() {
   [[ -r /etc/os-release ]] || { fail 'OS-identificatie ontbreekt'; return 1; }
-  local ID VERSION_ID
+  local ID VERSION_ID VERSION
   . /etc/os-release
   [[ $ID == ubuntu && $VERSION_ID == 26.04 ]] || { fail 'Alleen Ubuntu 26.04 LTS wordt ondersteund'; return 1; }
   local tool
