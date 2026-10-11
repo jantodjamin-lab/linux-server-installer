@@ -1,4 +1,6 @@
 """Offline checks prevent false cold-boot claims; no real guest/host effects."""
+import ast
+import configparser
 import contextlib
 import importlib.util
 import io
@@ -151,3 +153,31 @@ class ColdBootEvidence(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+
+
+class GuestServiceOrdering(unittest.TestCase):
+    def test_seed_service_runs_after_cloud_final_without_multi_user_cycle(self):
+        tree=ast.parse((BASE/'tools/e2e-seed.py').read_text())
+        assignments=[node for node in ast.walk(tree) if isinstance(node,ast.Assign)
+                     and any(isinstance(target,ast.Name) and target.id=='service' for target in node.targets)]
+        self.assertEqual(len(assignments),1)
+        unit=configparser.ConfigParser();unit.read_string(ast.literal_eval(assignments[0].value))
+        self.assertEqual(unit['Unit']['After'],'cloud-final.service')
+        # Services wanted by a target gain default Before=target ordering.
+        # cloud-final already follows multi-user.target, making the old target
+        # installation cyclic on reboot. A service Wants= has no such edge.
+        wanted_by=unit['Install']['WantedBy']
+        edges={'cloud-final.service':{'multi-user.target'},
+               'rc5-e2e.service':set(unit['Unit']['After'].split())}
+        if wanted_by.endswith('.target'):edges.setdefault(wanted_by,set()).add('rc5-e2e.service')
+        def acyclic(node,active):
+            self.assertNotIn(node,active,'second-boot systemd ordering cycle')
+            for previous in edges.get(node,()):acyclic(previous,active|{node})
+        for node in edges:acyclic(node,set())
+        self.assertEqual(wanted_by,'cloud-final.service')
+
+    def test_second_boot_has_independent_shorter_host_deadline(self):
+        shell=(BASE/'tools/e2e-vm.sh').read_text()
+        self.assertIn('boot_timeout=${RC5_E2E_TIMEOUT:-150m}',shell)
+        self.assertIn('[ "$boot" = 1 ] || boot_timeout=${RC5_E2E_REBOOT_TIMEOUT:-20m}',shell)
+        self.assertIn('timeout "$boot_timeout" qemu-system-x86_64',shell)

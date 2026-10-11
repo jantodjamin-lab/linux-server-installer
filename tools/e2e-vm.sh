@@ -28,7 +28,9 @@ for case_dir in "$@"; do
   for boot in 1 2; do
     serial=serial.log
     [ "$boot" = 1 ] || serial=serial-reboot.log
-    timeout "${RC5_E2E_TIMEOUT:-150m}" qemu-system-x86_64 $qemu_accel -smp 1 -m "$memory" \
+    boot_timeout=${RC5_E2E_TIMEOUT:-150m}
+    [ "$boot" = 1 ] || boot_timeout=${RC5_E2E_REBOOT_TIMEOUT:-20m}
+    timeout "$boot_timeout" qemu-system-x86_64 $qemu_accel -smp 1 -m "$memory" \
     -drive "file=$case_dir/disk.qcow2,format=qcow2,if=virtio" \
     -drive "file=$case_dir/seed.img,format=raw,if=virtio,readonly=on" \
     -netdev user,id=net0 -device virtio-net-pci,netdev=net0 \

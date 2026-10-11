@@ -55,7 +55,7 @@ tar -czf /e2e-artifacts/private-journals.tar.gz /var/lib/universal-linux-install
 sync
 systemctl poweroff
 '''.replace('COMMAND',command)
-    service='[Unit]\nAfter=cloud-final.service\n[Service]\nType=oneshot\nExecStart=/bin/sh /opt/rc5-e2e.sh\n[Install]\nWantedBy=multi-user.target\n'
+    service='[Unit]\nAfter=cloud-final.service\n[Service]\nType=oneshot\nExecStart=/bin/sh /opt/rc5-e2e.sh\n[Install]\nWantedBy=cloud-final.service\n'
     config={'package_update':True,'packages':['python3','gpg','gpgv','util-linux','curl','iproute2','unattended-upgrades'],'users':[{'name':'rc5-operator','sudo':'ALL=(ALL) NOPASSWD:ALL','lock_passwd':True}],
             'write_files':[{'path':'/etc/universal-installer-disposable-e2e','content':'isolated-local-qemu\n'},
              {'path':'/opt/rc5-installer.tar.gz','encoding':'b64','content':base64.b64encode(buffer.getvalue()).decode()},

@@ -74,3 +74,12 @@ installer starts; the installer does not take ownership of it. Minimum-resource
 refusals do not reboot. Fault jobs omit cold-boot proof to keep the exhaustive
 interruption matrix bounded. This is exclusively a test-harness restart, never
 an installer-triggered reboot or permission to restart a real target.
+
+The first comprehensive cold-boot run completed installation, repeat execution
+and both sudo authorization cases for all three profiles, then failed: systemd
+skipped the fixture service because its ordering after cloud-final conflicted
+with being wanted by multi-user.target. The fixture is now wanted by
+cloud-final.service directly and remains ordered after it. This scheduling fix
+requires a new actual cold-boot run; offline checks alone do not prove runtime
+success. The second boot has its own 20-minute host deadline
+(`RC5_E2E_REBOOT_TIMEOUT`), separate from the first boot's 150-minute deadline.
