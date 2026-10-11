@@ -10,7 +10,9 @@ install -m 600 /dev/null "$work/global.npmrc"
 # shellcheck disable=SC2016
 grep -Fq -- '--userconfig="$npm_work/user.npmrc" --globalconfig="$npm_work/global.npmrc"' "$base/bash/app.sh"
 if command -v npm >/dev/null; then
-  env -i PATH=/usr/bin:/bin HOME="$work" npm --version \
+  npm_executable=$(command -v npm)
+  node_executable=$(command -v node)
+  env -i PATH="$(dirname "$node_executable"):/usr/bin:/bin" HOME="$work" "$npm_executable" --version \
     --userconfig="$work/user.npmrc" --globalconfig="$work/global.npmrc" > "$work/npm-version" 2> "$work/private-output"
   grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+' "$work/npm-version"
   echo 'PASS real npm loads distinct empty user/global configurations'
