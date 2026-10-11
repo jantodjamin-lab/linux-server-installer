@@ -50,40 +50,40 @@ reset_case() {
 }
 for gib in 0 2 4 6; do
  reset_case "$gib" "$((gib*1073741824))"
- swap_ensure
+ swap_ensure install
  if ((gib<4)); then
   [[ $(/usr/bin/stat -c %s "$STATE_DIR/swapfile") == "$(((4-gib)*1073741824+1048576))" ]]
   [[ $(/usr/bin/stat -c %a "$STATE_DIR/swapfile") == 600 ]]
   [[ $(wc -l < "$ULI_ROOT/dd-calls") == 1 ]]
  else [[ ! -e $STATE_DIR/swapfile ]]; fi
  cp "$ULI_ROOT/etc/fstab" "$ULI_ROOT/fstab-before"
- swap_ensure
+ swap_ensure install
  cmp "$ULI_ROOT/fstab-before" "$ULI_ROOT/etc/fstab"
  [[ ! -e $ULI_ROOT/dd-calls || $(wc -l < "$ULI_ROOT/dd-calls") == 1 ]]
  echo "PASS mocked swap $gib GiB and repeat idempotence"
 done
 reset_case interrupted 0
 export MOCK_INTERRUPT=1
-if swap_ensure; then exit 1; fi
+if swap_ensure install; then exit 1; fi
 unset MOCK_INTERRUPT
-if swap_ensure; then exit 1; fi
+if swap_ensure install; then exit 1; fi
 [[ ! -e $ULI_ROOT/mkswap-calls && ! -e $ULI_ROOT/activated ]]
 echo 'PASS interrupted allocation blocks uncertain automatic recovery'
 reset_case badfs 0
 export MOCK_FS=btrfs
-if swap_ensure; then exit 1; fi
+if swap_ensure install; then exit 1; fi
 [[ ! -e $STATE_DIR/swapfile ]]
 unset MOCK_FS
 echo 'PASS unsupported filesystem refused before writes'
 reset_case lowspace 0
 export MOCK_FREE=1000000000
-if swap_ensure; then exit 1; fi
+if swap_ensure install; then exit 1; fi
 [[ ! -e $STATE_DIR/swapfile ]]
 unset MOCK_FREE
 echo 'PASS insufficient free space refused before writes'
 reset_case reboot 0
-swap_ensure
+swap_ensure install
 rm "$ULI_ROOT/activated"
-swap_ensure
+swap_ensure install
 [[ $(wc -l < "$ULI_ROOT/dd-calls") == 1 && $(wc -l < "$ULI_ROOT/mkswap-calls") == 1 ]]
 echo 'PASS reboot modeled: reactivates without recreating or reformatting'

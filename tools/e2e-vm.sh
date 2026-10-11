@@ -20,8 +20,26 @@ set -Eeuo pipefail
 mkdir -p /evidence
 mount -t 9p -o trans=virtio,version=9p2000.L evidence /evidence
 exec > >(tee -a /evidence/guest.log) 2>&1
-trap 'echo FAIL > /evidence/result; sync; systemctl poweroff' ERR
+failure_evidence() {
+ local failure_status=$? failure_line=${BASH_LINENO[0]:-unknown}
+ trap - ERR
+ set +e
+ echo "FAIL exit=$failure_status line=$failure_line" > /evidence/failure.txt
+ cp /etc/os-release /evidence/os-release
+ uname -a > /evidence/uname.txt
+ df -h > /evidence/disk.txt
+ swapon --show > /evidence/swap-failure.txt
+ cp /var/lib/universal-linux-installer/state /evidence/failed-state
+ journalctl --no-pager -u universal-linux-installer-resume.service -u uli-vm-test.service > /evidence/services.txt
+ echo FAIL > /evidence/result
+ sync
+ systemctl poweroff
+}
+trap failure_evidence ERR
 source /etc/os-release
+cp /etc/os-release /evidence/os-release
+uname -a > /evidence/uname.txt
+printf "Guest OS: %s\n" "$PRETTY_NAME"
 [[ $VERSION_ID == 26.04 && $PRETTY_NAME == *26.04.1* ]] || { echo 'BLOCKED exact Ubuntu 26.04.1 image required'; false; }
 cd /opt/installer
 if [[ ! -e /var/lib/uli-vm-firstboot ]]; then

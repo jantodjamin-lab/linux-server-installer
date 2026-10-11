@@ -56,4 +56,9 @@ jobs:
         if: always()
         with:
           name: bash-v1-${{ matrix.profile }}-${{ matrix.scenario }}
-          path: e2e-logs/
+          path: |
+            e2e-logs/status.txt
+            e2e-logs/SHA256SUMS
+            e2e-logs/signature-status.txt
+            e2e-logs/**/serial*.log
+            e2e-logs/**/artifacts/**

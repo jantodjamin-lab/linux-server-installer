@@ -2,14 +2,7 @@
 
 **CLOSED – SUPERSEDED BY BASH V1.**
 
-The old Python installation route is closed. History is retained; no force-push or rewrite is used. The original Ramin workspace and historical repository are not modified by this delivery.
-
-- `archive/python-installer/`: original working files, RC5 library, tests, tools, npm bundle, documentation and prior release artifacts.
-- `archive/python-installer/committed-baseline/installer/`: original committed installer, including files removed during earlier development.
-- `archive/research/`: historical installer research and `python-working-tree.patch`, preserving the uncommitted delta.
-- Every historical Markdown document carries the closure notice. Archived Python tests can be run for historical context only; their failures cannot establish Bash acceptance.
-
-## Files
+The complete Python working copy, committed baseline, last public commit and private preflight/tests are retained under `archive/python-installer/`. Research, exact working-tree patch and historical test evidence are under `archive/research/`. Git history and old releases remain intact. All historical Markdown carries a closure banner; archived code and workflows are inert.
 
 ```text
 archive/README.md
@@ -92,8 +85,85 @@ archive/python-installer/lib/resolve.py
 archive/python-installer/lib/sources.py
 archive/python-installer/lib/swap.py
 archive/python-installer/lib/workflow.py
+archive/python-installer/private-preflight/infrastructure/installer/.gitkeep
+archive/python-installer/private-preflight/infrastructure/installer/dry_run.py
+archive/python-installer/private-preflight/infrastructure/installer/plan.py
+archive/python-installer/private-preflight/infrastructure/installer/preflight.py
+archive/python-installer/private-preflight/infrastructure/installer/remote_preflight.py
+archive/python-installer/private-preflight/infrastructure/installer/swap_step.py
+archive/python-installer/private-preflight/infrastructure/installer/swap_validation.py
+archive/python-installer/private-preflight/tests/.gitkeep
+archive/python-installer/private-preflight/tests/test_dry_run.py
+archive/python-installer/private-preflight/tests/test_dry_run_final.py
+archive/python-installer/private-preflight/tests/test_dry_run_recovery.py
+archive/python-installer/private-preflight/tests/test_plan.py
+archive/python-installer/private-preflight/tests/test_preflight.py
+archive/python-installer/private-preflight/tests/test_remote_adapter.py
+archive/python-installer/private-preflight/tests/test_remote_preflight.py
+archive/python-installer/private-preflight/tests/test_swap_step.py
 archive/python-installer/profiles/npm-pins.json
 archive/python-installer/profiles/profiles.json
+archive/python-installer/public-last-commit/.github/workflows/refresh-npm-lock.yml
+archive/python-installer/public-last-commit/.github/workflows/release.yml
+archive/python-installer/public-last-commit/.gitignore
+archive/python-installer/public-last-commit/CHANGELOG.md
+archive/python-installer/public-last-commit/README.md
+archive/python-installer/public-last-commit/SECURITY.md
+archive/python-installer/public-last-commit/bundle/angular/package-lock.json
+archive/python-installer/public-last-commit/bundle/angular/package.json
+archive/python-installer/public-last-commit/bundle/codex/package-lock.json
+archive/python-installer/public-last-commit/bundle/codex/package.json
+archive/python-installer/public-last-commit/docs/ARCHITECTURE.md
+archive/python-installer/public-last-commit/docs/CI_VALIDATION.md
+archive/python-installer/public-last-commit/docs/GUIDE.md
+archive/python-installer/public-last-commit/docs/SOURCES.md
+archive/python-installer/public-last-commit/install.sh
+archive/python-installer/public-last-commit/lib/apply.py
+archive/python-installer/public-last-commit/lib/cli.py
+archive/python-installer/public-last-commit/lib/core.py
+archive/python-installer/public-last-commit/lib/errors.py
+archive/python-installer/public-last-commit/lib/index_age.py
+archive/python-installer/public-last-commit/lib/journal.py
+archive/python-installer/public-last-commit/lib/local.py
+archive/python-installer/public-last-commit/lib/node.py
+archive/python-installer/public-last-commit/lib/privilege.py
+archive/python-installer/public-last-commit/lib/resolve.py
+archive/python-installer/public-last-commit/lib/sources.py
+archive/python-installer/public-last-commit/lib/swap.py
+archive/python-installer/public-last-commit/lib/workflow.py
+archive/python-installer/public-last-commit/profiles/npm-pins.json
+archive/python-installer/public-last-commit/profiles/profiles.json
+archive/python-installer/public-last-commit/release/AUDIT.txt
+archive/python-installer/public-last-commit/release/SHA256SUMS
+archive/python-installer/public-last-commit/release/build.py
+archive/python-installer/public-last-commit/release/manifest.json
+archive/python-installer/public-last-commit/tests/fixtures/transip-26.04/README.md
+archive/python-installer/public-last-commit/tests/fixtures/ubuntu-archive-2018.b64
+archive/python-installer/public-last-commit/tests/test_ci_harness.py
+archive/python-installer/public-last-commit/tests/test_cli_sudo_order.py
+archive/python-installer/public-last-commit/tests/test_container_diagnostics.py
+archive/python-installer/public-last-commit/tests/test_core.py
+archive/python-installer/public-last-commit/tests/test_e2e_harness.py
+archive/python-installer/public-last-commit/tests/test_integration.py
+archive/python-installer/public-last-commit/tests/test_local.py
+archive/python-installer/public-last-commit/tests/test_package_snapshot.py
+archive/python-installer/public-last-commit/tests/test_preflight_diagnostics.py
+archive/python-installer/public-last-commit/tests/test_rc3.py
+archive/python-installer/public-last-commit/tests/test_rc4.py
+archive/python-installer/public-last-commit/tests/test_rc5.py
+archive/python-installer/public-last-commit/tests/test_recovery_acceptance.py
+archive/python-installer/public-last-commit/tests/test_resolve_authorization.py
+archive/python-installer/public-last-commit/tests/test_transip_supplied.py
+archive/python-installer/public-last-commit/tests/test_workflow.py
+archive/python-installer/public-last-commit/tools/check-syntax.py
+archive/python-installer/public-last-commit/tools/ci-vm.sh
+archive/python-installer/public-last-commit/tools/container-test.py
+archive/python-installer/public-last-commit/tools/container-test.sh
+archive/python-installer/public-last-commit/tools/e2e-guest.py
+archive/python-installer/public-last-commit/tools/e2e-seed.py
+archive/python-installer/public-last-commit/tools/e2e-vm.sh
+archive/python-installer/public-last-commit/tools/make-fault-matrix.py
+archive/python-installer/public-last-commit/tools/make-npm-bundle.py
 archive/python-installer/release/AUDIT.txt
 archive/python-installer/release/SHA256SUMS
 archive/python-installer/release/build.py
@@ -152,6 +222,6 @@ archive/research/evidence/iteration-3-app-plan.json
 archive/research/evidence/iteration-3-app.json
 archive/research/evidence/iteration-3-db-plan.json
 archive/research/evidence/iteration-3-db.json
+archive/research/historical-test-results.txt
 archive/research/python-working-tree.patch
-
 ```

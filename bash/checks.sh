@@ -34,7 +34,7 @@ checks_packages() {
     [[ $candidate == Ubuntu ]] || { fail 'Niet-Ubuntu APT-repository vereist handmatige beoordeling'; return 1; }
   done <<< "$origins"
   for package in "${packages[@]}"; do
-    candidate=$(apt-cache policy "$package" | awk '/Candidate:/ {print $2; exit}')
+    candidate=$(apt-cache policy "$package" | awk '/Candidate:/ && !seen {print $2; seen=1}')
     [[ -n $candidate && $candidate != '(none)' ]] || { fail "Pakket niet beschikbaar: $package"; return 1; }
   done
   run_apt --simulate --no-remove install --no-install-recommends "${packages[@]}" || { fail 'APT-installatieplan onveilig of onoplosbaar'; return 1; }

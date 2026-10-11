@@ -1,0 +1,59 @@
+{
+  "name": "RC4 offline validation, prerelease and anonymous acceptance",
+  "on": {
+    "push": {
+      "branches": [
+        "release-candidate"
+      ],
+      "paths": [
+        "install.sh",
+        "README.md",
+        "SECURITY.md",
+        "lib/**",
+        "tests/**",
+        "profiles/**",
+        "docs/**",
+        "release/build.py",
+        ".github/workflows/rc4-release.yml"
+      ]
+    },
+    "workflow_dispatch": {}
+  },
+  "permissions": {
+    "contents": "write"
+  },
+  "concurrency": {
+    "group": "rc4-prerelease",
+    "cancel-in-progress": false
+  },
+  "jobs": {
+    "publish": {
+      "if": "github.repository == 'jantodjamin-lab/linux-server-installer' && github.ref == 'refs/heads/release-candidate'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 15,
+      "steps": [
+        {
+          "uses": "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Offline tests and controlled reproducible export",
+          "run": "set -eu\npython3 -B -W error::ResourceWarning -m unittest discover -s tests -v\nsh -n install.sh\npython3 -B release/build.py\ncp release/universal-linux-installer-1.0.0-rc.4.tar.gz \"$RUNNER_TEMP/first.tar.gz\"\npython3 -B release/build.py\ncmp \"$RUNNER_TEMP/first.tar.gz\" release/universal-linux-installer-1.0.0-rc.4.tar.gz\nprintf '%s  %s\\n' b44702a5ab65c77eb9ec72671512c5e5116a4cdbbf8da1b4ee5c4bd209d68a9b release/universal-linux-installer-1.0.0-rc.4.tar.gz | sha256sum -c -\n(cd release && sha256sum -c SHA256SUMS)\nmkdir \"$RUNNER_TEMP/rc4-extracted\"\ntar -xzf release/universal-linux-installer-1.0.0-rc.4.tar.gz -C \"$RUNNER_TEMP/rc4-extracted\"\npython3 -B -W error::ResourceWarning -m unittest discover -s \"$RUNNER_TEMP/rc4-extracted/universal-linux-installer-1.0.0-rc.4/tests\" -v\n"
+        },
+        {
+          "name": "Create only the authorized prerelease",
+          "env": {
+            "GH_TOKEN": "${{ github.token }}"
+          },
+          "run": "set -eu\ngh release create v1.0.0-rc.4 release/universal-linux-installer-1.0.0-rc.4.tar.gz release/SHA256SUMS release/manifest.json release/build.py release/AUDIT.txt --repo jantodjamin-lab/linux-server-installer --target \"$GITHUB_SHA\" --title \"Universal Linux Installer v1.0.0-rc.4\" --notes-file docs/RC4.md --prerelease\n"
+        },
+        {
+          "name": "Anonymous HTTPS downloads, pinned checksum and extracted offline tests",
+          "run": "set -eu\nverify_dir=$(mktemp -d)\ncd \"$verify_dir\"\nfor asset in universal-linux-installer-1.0.0-rc.4.tar.gz SHA256SUMS manifest.json build.py AUDIT.txt; do\n  curl -q --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3 --max-time 60 \"https://github.com/jantodjamin-lab/linux-server-installer/releases/download/v1.0.0-rc.4/$asset\" --output \"$asset\"\ndone\nprintf '%s  %s\\n' b44702a5ab65c77eb9ec72671512c5e5116a4cdbbf8da1b4ee5c4bd209d68a9b universal-linux-installer-1.0.0-rc.4.tar.gz | sha256sum -c -\nsha256sum -c SHA256SUMS\ntar -xzf universal-linux-installer-1.0.0-rc.4.tar.gz\npython3 -B -W error::ResourceWarning -m unittest discover -s universal-linux-installer-1.0.0-rc.4/tests -v\n"
+        }
+      ]
+    }
+  }
+}

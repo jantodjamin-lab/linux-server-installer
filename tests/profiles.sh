@@ -35,7 +35,7 @@ else
 fi
 source "$base/bash/checks.sh"
 dpkg() { [[ $1 == --audit ]]; }
-apt-cache() { if (( $# == 1 )); then printf "  release o=Ubuntu,a=resolute\n"; else printf "%s\n" "  Candidate: ${CANDIDATE:-1.0}"; fi; }
+apt-cache() { if (( $# == 1 )); then printf "  release o=Ubuntu,a=resolute\n"; else printf "%s\n" "  Candidate: ${CANDIDATE:-1.0}"; for ((line=0;line<5000;line++)); do printf "      Package table trailing metadata line %s\n" "$line" || return 100; done; fi; }
 run_apt() { [[ $* == *--simulate* && $* == *--no-remove* ]]; }
 for PROFILE in app database combined; do checks_packages; done
 echo 'PASS APP, DB and combined candidate validation'
