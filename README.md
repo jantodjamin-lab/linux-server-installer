@@ -1,6 +1,6 @@
 # Universal Linux Server Installer — Bash V1
 
-**Validation status: NO-GO until the acceptance evidence in docs/VALIDATION.md is complete.**
+**Real installation acceptance: PASS.** All eight actual Ubuntu 26.04.1 VM scenarios and the full Bash regression passed. Use the checksum-verified prerelease; independent publication verification is attached to the release. See [acceptance evidence](docs/VALIDATION.md) and [delivery report](docs/EINDRAPPORT.md).
 
 Active installer code is Bash. Python 3 is installed only as an APP development tool.
 The previous implementation is **CLOSED – SUPERSEDED BY BASH V1** and retained under `archive/`.
