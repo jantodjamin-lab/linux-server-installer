@@ -86,3 +86,53 @@ cmp "$work/signal-before" "$ULI_ROOT/var/lib/universal-linux-installer/state"
 [[ ! -e $ULI_ROOT/var/lib/universal-linux-installer/installer-1.0.0-bash.3 ]]
 grep -q 'oorspronkelijke status behouden' "$work/signal-output"
 echo 'PASS real TERM during pre-unit migration setup preserves original bash.2 state'
+# Use the production owner declaration and handler, not a reimplementation.
+awk '/^readonly INSTALLER_OWNER_PID=/ {print} /^installer_error\(\) \{/ {capture=1} capture {print} capture && /^}$/ {exit}' "$base/install.sh" > "$work/actual-error-handler.sh"
+grep -q '^readonly INSTALLER_OWNER_PID=' "$work/actual-error-handler.sh"
+grep -q '^installer_error() {' "$work/actual-error-handler.sh"
+cat > "$work/error-owner-fixture.sh" <<'OWNER_FIXTURE'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "$ULI_HANDLER_BASE/bash/common.sh"
+source "$ULI_HANDLER_BASE/bash/state.sh"
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+VERSION=1.0.0-bash.3 PROFILE=app STATUS=complete CURRENT='' COMPLETED='system plan swap app_packages codex nginx resume verification'
+STARTED=2026-10-12T00:00:00Z ENDED=2026-10-12T00:01:00Z LAST_ERROR=''
+migration_preparing=0
+state_save
+source "$ULI_HANDLER_SOURCE"
+trap 'installer_error "$?"' ERR
+case $1 in
+  asynchronous)
+    # Background renderer-like failures inherit ERR but do not own the lock.
+    ( sleep 0.1; false ) & child=$!
+    child_status=0
+    wait "$child" || child_status=$?
+    [[ $child_status == 1 ]]
+    grep -qx 'status=complete' "$STATE_FILE"
+    grep -qx 'Status: COMPLETE' "$ROOT/var/lib/universal-linux-installer-status/status"
+    ;;
+  synchronous)
+    # A command substitution fails in a descendant and then its nonzero status
+    # reaches the assignment in the real owner; this must still record FAIL.
+    CURRENT=codex
+    ignored=$(false)
+    printf 'UNREACHABLE %s\n' "$ignored"
+    ;;
+  *) exit 2;;
+esac
+OWNER_FIXTURE
+export ULI_HANDLER_BASE=$base ULI_HANDLER_SOURCE=$work/actual-error-handler.sh
+ULI_ROOT=$work/async-owner-root bash "$work/error-owner-fixture.sh" asynchronous > "$work/async-owner-output" 2>&1
+grep -qx 'status=complete' "$work/async-owner-root/var/lib/universal-linux-installer/state"
+echo 'PASS actual asynchronous ERR descendant cannot overwrite persisted COMPLETE or public status'
+synchronous_result=0
+ULI_ROOT=$work/sync-owner-root bash "$work/error-owner-fixture.sh" synchronous > "$work/sync-owner-output" 2>&1 || synchronous_result=$?
+[[ $synchronous_result == 1 ]]
+grep -qx 'status=failed' "$work/sync-owner-root/var/lib/universal-linux-installer/state"
+grep -qx 'error=step_codex_exit_1' "$work/sync-owner-root/var/lib/universal-linux-installer/state"
+grep -qx 'Status: FAIL' "$work/sync-owner-root/var/lib/universal-linux-installer-status/status"
+[[ $(grep -c 'FAIL Stap codex onderbroken' "$work/sync-owner-output") == 1 ]]
+if grep -q 'UNREACHABLE' "$work/sync-owner-output"; then exit 1; fi
+echo 'PASS synchronous child failure reaches owning process and records exactly one FAILED state'

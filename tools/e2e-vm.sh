@@ -380,6 +380,16 @@ else
   systemctl is-active postgresql
  fi
  swapon --show > /evidence/swap-after-reboot.txt
+ # A successful foreground exit is insufficient: a former renderer descendant
+ # overwrote COMPLETE after exiting. Require persistent state to remain stable.
+ grep -qx 'status=complete' /var/lib/universal-linux-installer/state
+ grep -qx 'current=' /var/lib/universal-linux-installer/state
+ cp /var/lib/universal-linux-installer/state /evidence/state-before-final-settle
+ sleep 5
+ grep -qx 'status=complete' /var/lib/universal-linux-installer/state
+ grep -qx 'current=' /var/lib/universal-linux-installer/state
+ cmp /evidence/state-before-final-settle /var/lib/universal-linux-installer/state
+ echo 'PASS COMPLETE persistent state unchanged after foreground retry and renderer settlement' > /evidence/final-state-stability.txt
  # Whitelist metadata only: never export swap contents, VM disks or guest keys.
  mkdir -p /evidence/state
  for metadata in state swap-owner install.log; do

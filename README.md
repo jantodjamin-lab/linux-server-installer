@@ -1,6 +1,6 @@
 # Universal Linux Server Installer — Bash V1
 
-**BASH-V1-002 / bash.3: installation and candidate-bootstrap acceptance PASS on actual Ubuntu 26.04.1 amd64/ext4 VMs (12/12 executed jobs).** Final public one-liner verification is recorded in the release attachment `BASH-V1-002-VERIFICATION.md`. See [bootstrap, menu, progress and test limits](docs/BASH-V1-002.md) and [prior Codex correction](docs/BASH-V1-001.md).
+**BASH-V1-002 / bash.3: publication blocked pending final progress-process isolation regression.** Final public one-liner verification is recorded in the release attachment `BASH-V1-002-VERIFICATION.md`. See [bootstrap, menu, progress and test limits](docs/BASH-V1-002.md) and [prior Codex correction](docs/BASH-V1-001.md).
 
 Active installer code is Bash. Python 3 is installed only as an APP development tool.
 The previous implementation is **CLOSED – SUPERSEDED BY BASH V1** and retained under `archive/`.

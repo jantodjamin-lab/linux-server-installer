@@ -93,8 +93,13 @@ if [[ -e $STATE_DIR/install.log ]]; then
   [[ -f $STATE_DIR/install.log && $(stat -c %u "$STATE_DIR/install.log") == 0 && $(stat -c %a "$STATE_DIR/install.log") == 600 ]] || { fail 'Onveilige logrechten'; exit 1; }
 fi
 exec > >(exec 9>&-; tee -a "$STATE_DIR/install.log") 2>&1
+readonly INSTALLER_OWNER_PID=$BASHPID
 installer_error() {
   local result=$1
+  # ERR is inherited by command substitutions under set -E. Only the process
+  # holding the installation lock may persist failure; synchronous child errors
+  # still propagate to that owner through their exit status.
+  if [[ $BASHPID != "$INSTALLER_OWNER_PID" ]]; then exit "$result"; fi
   trap - ERR INT TERM HUP
   if (( migration_preparing )); then
     fail "Migratievoorbereiding onderbroken; oorspronkelijke status behouden. Log: $STATE_DIR/install.log" || true

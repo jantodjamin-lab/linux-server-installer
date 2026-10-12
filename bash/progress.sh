@@ -28,7 +28,12 @@ progress_init() {
   fi
   progress_snapshot || return
   local owner=$BASHPID
-  (exec 9>&-; progress_renderer "$owner") &
+  (
+    # A display process must never inherit installer state/cleanup signal traps.
+    trap - ERR EXIT INT TERM HUP
+    exec 9>&-
+    progress_renderer "$owner"
+  ) 2>/dev/null &
   PROGRESS_PID=$!
 }
 

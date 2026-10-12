@@ -32,6 +32,31 @@ for profile in app database combined; do
 done
 echo 'PASS profile phase counts, actual completion percentages, idempotence and plain output'
 (
+  trap 'printf "mutation\n" >> "$work/renderer-mutation"' ERR EXIT INT TERM HUP
+  parent_traps=$(trap -p ERR EXIT INT TERM HUP)
+  # Failure inside a command substitution reproduces inherited ERR propagation.
+  # shellcheck disable=SC2317
+  progress_renderer() { local _result; _result=$(false); }
+  progress_init app
+  wait "$PROGRESS_PID" || true
+  progress_stop
+  [[ ! -e $work/renderer-mutation ]]
+  [[ $(trap -p ERR EXIT INT TERM HUP) == "$parent_traps" ]]
+  # Expected shutdown must not emit diagnostics or run parent's mutation traps.
+  # shellcheck disable=SC2317
+  progress_renderer() { while :; do sleep 0.01; done; }
+  for _shutdown in 1 2 3 4 5; do
+    progress_init app
+    sleep 0.02
+    progress_stop
+    progress_stop
+  done
+  [[ ! -e $work/renderer-mutation ]]
+  trap - ERR EXIT INT TERM HUP
+) > "$work/renderer-shutdown-stdout" 2> "$work/renderer-shutdown-stderr"
+[[ ! -s $work/renderer-shutdown-stdout && ! -s $work/renderer-shutdown-stderr ]]
+echo 'PASS renderer failures/shutdown cannot invoke parent mutation traps; repeated stop has no diagnostics'
+(
   export PROGRESS_PLAIN_HEARTBEAT=1 PROGRESS_INTERVAL=0.1
   progress_init app
   trap progress_stop EXIT
