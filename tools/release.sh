@@ -4,7 +4,7 @@ set -Eeuo pipefail
 base=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 version=$(cat "$base/VERSION")
 [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]
-work=$(mktemp -d /tmp/uli-release.XXXXXXXX)
+work=$(mktemp -d "${TMPDIR:-/tmp}/uli-release.XXXXXXXX")
 trap 'rm -rf -- "$work"' EXIT
 name=universal-linux-installer-$version
 mkdir "$work/$name"

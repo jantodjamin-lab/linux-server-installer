@@ -45,7 +45,7 @@ uli_bootstrap_validate() {
       [[ ${kinds[$parent]:-} == d ]] || { uli_bootstrap_fail 'Ontbrekende of conflicterende bovenmap'; return 1; }
     done
   done
-  for name in install.sh VERSION FILES.sha256 bash/common.sh bash/checks.sh bash/progress.sh bash/state.sh bash/swap.sh bash/app.sh bash/database.sh bash/assets/codex/package.json bash/assets/codex/package-lock.json; do
+  for name in install.sh VERSION FILES.sha256 bash/common.sh bash/checks.sh bash/progress.sh bash/state.sh bash/swap.sh bash/app.sh bash/database.sh bash/assets/codex/package.json bash/assets/codex/package-lock.json tools/register-install-now.sh; do
     [[ ${kinds[$root/$name]:-} == - ]] || { uli_bootstrap_fail "Releasebestand ontbreekt: $name"; return 1; }
   done
 }
@@ -62,7 +62,7 @@ uli_bootstrap_main() (
   [[ -r /dev/tty && -w /dev/tty ]] || { uli_bootstrap_fail 'Start interactief in een terminal'; exit 1; }
   # Open the terminal before downloading; a pipe never supplies menu answers.
   exec 3<>/dev/tty || { uli_bootstrap_fail 'Geen actieve terminal'; exit 1; }
-  work=$(mktemp -d /tmp/uli-bootstrap.XXXXXXXX) || exit 1
+  work=$(mktemp -d "${TMPDIR:-/tmp}/uli-bootstrap.XXXXXXXX") || exit 1
   trap 'rm -rf -- "$work"' EXIT
   archive=$work/release.tar.gz
   root=universal-linux-installer-$ULI_BOOTSTRAP_VERSION
@@ -74,6 +74,15 @@ uli_bootstrap_main() (
   [[ $(cat "$work/payload/$root/VERSION") == "$ULI_BOOTSTRAP_VERSION" ]] || { uli_bootstrap_fail 'Interne versie wijkt af'; exit 1; }
   bash -n "$work/payload/$root/install.sh" || exit 1
   for tool in "$work/payload/$root"/bash/*.sh; do bash -n "$tool" || exit 1; done
+  if [[ ${1:-} == --register-install-now ]]; then
+    shift
+    [[ $# == 0 ]] || { uli_bootstrap_fail 'Onverwachte registratieargumenten'; exit 1; }
+    bash -n "$work/payload/$root/tools/register-install-now.sh" || exit 1
+    local verified_bootstrap_sha
+    verified_bootstrap_sha=$(sha256sum "$0" | awk '{print $1}')
+    bash "$work/payload/$root/tools/register-install-now.sh" "$0" "$verified_bootstrap_sha" <&3 >&3 2>&3
+    exit $?
+  fi
   # Installer obtains sudo only after showing its plan and receiving authorization.
   bash "$work/payload/$root/install.sh" "$@" <&3 >&3 2>&3
 )

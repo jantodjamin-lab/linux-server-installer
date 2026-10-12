@@ -25,7 +25,7 @@ for selection in 1 2 3; do
   [[ ! -e $ULI_ROOT && ! -e $ULI_SUDO_LOG ]]
 done
 printf '4\n' | bash "$work/fixture/install.sh" > "$work/status"
-grep -q 'Installerversie: 1.0.0-bash.3' "$work/status"
+grep -q 'Installerversie: 1.0.0-bash.4' "$work/status"
 printf '5\n' | bash "$work/fixture/install.sh" > "$work/exit"
 printf 'geen\n0\n5\n' | bash "$work/fixture/install.sh" > "$work/invalid" 2>&1
 [[ $(grep -c 'Ongeldige keuze' "$work/invalid") == 2 && ! -e $ULI_ROOT ]]
@@ -69,6 +69,8 @@ echo 'PASS backward 6-field state, strict 9-field metadata, sanitized progress s
 # Real signal handling with only the privilege reexec guard replaced. All state
 # paths stay under the explicit test root; no privileged host operation occurs.
 cp -a "$work/fixture" "$work/rootfixture"
+# Historical migration fixture: only BASH.2 -> BASH.3 is authorized.
+printf '1.0.0-bash.3\n' > "$work/rootfixture/VERSION"
 sed 's/if (( EUID != 0 )); then/if false; then/' "$work/fixture/install.sh" > "$work/rootfixture/install.sh"
 export ULI_ROOT=$work/signal-root
 mkdir -p "$ULI_ROOT/var/lib/universal-linux-installer"

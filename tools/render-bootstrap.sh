@@ -24,9 +24,11 @@ printf '%s  bootstrap.sh\n' "$bootstrap_sha" > "$output/BOOTSTRAP.sha256"
 # Avoid sourcing the downloaded script or executing it before SHA and syntax checks.
 # This is literal source for the generated Bash loader.
 # shellcheck disable=SC2016
-loader='set -Eeuo pipefail; trap '\''printf "FAIL bootstrapdownload of validatie\n" >&2'\'' ERR; umask 077; command -v curl >/dev/null; command -v sha256sum >/dev/null; exec 3<>/dev/tty; w=$(mktemp -d /tmp/uli-loader.XXXXXXXX); trap '\''rm -rf -- "$w"'\'' EXIT; curl -q --fail --location --proto =https --proto-redir =https --connect-timeout 30 --max-time 300 --max-filesize 262144 "@@BOOTSTRAP_URL@@" --output "$w/bootstrap.sh"; [[ -f $w/bootstrap.sh && ! -L $w/bootstrap.sh && $(wc -c < "$w/bootstrap.sh") -le 262144 ]]; printf '\''@@BOOTSTRAP_SHA@@  %s\n'\'' "$w/bootstrap.sh" | sha256sum --check --status; bash -n "$w/bootstrap.sh"; bash "$w/bootstrap.sh" "$@" <&3 >&3 2>&3'
+loader='set -Eeuo pipefail; trap '\''printf "FAIL bootstrapdownload of validatie\n" >&2'\'' ERR; umask 077; command -v curl >/dev/null; command -v sha256sum >/dev/null; exec 3<>/dev/tty; w=$(mktemp -d "${TMPDIR:-/tmp}/uli-loader.XXXXXXXX"); trap '\''rm -rf -- "$w"'\'' EXIT; curl -q --fail --location --proto =https --proto-redir =https --connect-timeout 30 --max-time 300 --max-filesize 262144 "@@BOOTSTRAP_URL@@" --output "$w/bootstrap.sh"; [[ -f $w/bootstrap.sh && ! -L $w/bootstrap.sh && $(wc -c < "$w/bootstrap.sh") -le 262144 ]]; printf '\''@@BOOTSTRAP_SHA@@  %s\n'\'' "$w/bootstrap.sh" | sha256sum --check --status; bash -n "$w/bootstrap.sh"; bash "$w/bootstrap.sh" "$@" <&3 >&3 2>&3'
 loader=${loader//@@BOOTSTRAP_URL@@/$bootstrap_url}
 loader=${loader//@@BOOTSTRAP_SHA@@/$bootstrap_sha}
 # %q is Bash quoting; JSON serialization is never used for shell source.
 printf 'bash -c %q --\n' "$loader" > "$output/ONE-LINER.txt"
+printf 'bash -c %q install-now --register-install-now\n' "$loader" > "$output/BOOTSTRAP-INSTALL-NOW.txt"
+chmod 600 "$output/BOOTSTRAP-INSTALL-NOW.txt"
 printf 'PASS rendered bootstrap for %s\nArchive SHA256: %s\nBootstrap SHA256: %s\n' "$version" "$archive_sha" "$bootstrap_sha"

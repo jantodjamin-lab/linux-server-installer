@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0-bash.4
+
+- Add a pinned, checksum-verified one-time bootstrap that registers a persistent `install-now` command.
+- Store the verified bootstrap root-owned/read-only; keep archive downloads and verification unprivileged on every run.
+- Require explicit `ja` before registration; refuse conflicting files and symlinks; make exact repeat registration leave files untouched.
+- Add isolated launcher tests for registration, menu exit, download/checksum failures, protected modes and idempotence.
+
 ## 1.0.0-bash.3
 
 - BASH-V1-002: pinned two-hash bootstrap trust chain, strict archive path/type validation and automatic interactive launch.

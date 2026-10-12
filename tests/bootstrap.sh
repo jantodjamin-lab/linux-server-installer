@@ -3,10 +3,10 @@
 set -Eeuo pipefail
 base=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 source "$base/tools/bootstrap-template.sh"
-work=$(mktemp -d /tmp/uli-bootstrap-tests.XXXXXXXX)
+work=$(mktemp -d "${TMPDIR:-/tmp}/uli-bootstrap-tests.XXXXXXXX")
 trap 'rm -rf -- "$work"' EXIT
 version=1.0.0-test root=universal-linux-installer-1.0.0-test
-mkdir -p "$work/fixture/$root/bash/assets/codex" "$work/bin"
+mkdir -p "$work/fixture/$root/bash/assets/codex" "$work/fixture/$root/tools" "$work/bin"
 for file in install.sh bash/common.sh bash/checks.sh bash/progress.sh bash/state.sh bash/swap.sh bash/app.sh bash/database.sh; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$work/fixture/$root/$file"
 done
@@ -14,6 +14,7 @@ printf '%s\n' "$version" > "$work/fixture/$root/VERSION"
 : > "$work/fixture/$root/FILES.sha256"
 printf '{}\n' > "$work/fixture/$root/bash/assets/codex/package.json"
 printf '{}\n' > "$work/fixture/$root/bash/assets/codex/package-lock.json"
+cp "$base/tools/register-install-now.sh" "$work/fixture/$root/tools/register-install-now.sh"
 find "$work/fixture" -type d -exec chmod 755 {} +
 find "$work/fixture" -type f -exec chmod 644 {} +
 pack() { tar --format=gnu --owner=0 --group=0 --numeric-owner -czf "$1" -C "$work/fixture" "$root"; }
