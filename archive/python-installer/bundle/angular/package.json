@@ -1,8 +1,0 @@
-{
-  "name": "universal-installer-angular",
-  "version": "1.0.0",
-  "private": true,
-  "dependencies": {
-    "@angular/cli": "20.3.39"
-  }
-}
