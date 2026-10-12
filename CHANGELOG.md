@@ -6,6 +6,7 @@
 - Menu choices 1–5 and explicit ja; CLI audit/status/profile options preserved.
 - Real completed-phase progress (APP 8 / DATABASE 7 / combined 10), ASCII/no-color TTY display, elapsed/activity and plain periodic log output.
 - Granular package/service phases, backward-compatible private metadata, public sanitized status and login display; existing safe resume retained.
+- Isolate progress-worker traps and restrict failure-state writes to the installation owner; real VM acceptance requires stable final COMPLETE after background settlement.
 - Historical Python/research archives retained in Git but excluded from new release archives.
 
 ## 1.0.0-bash.2
