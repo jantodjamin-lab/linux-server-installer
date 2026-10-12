@@ -57,6 +57,8 @@ printf 'error=duplicate\n' >> "$STATE_FILE"
 if state_load; then exit 1; fi
 sed 's/^started=.*/started=untrusted/' "$work/state-good" > "$STATE_FILE"
 if state_load; then exit 1; fi
+sed 's/^current=.*/current=unknown_phase/' "$work/state-good" > "$STATE_FILE"
+if state_load; then exit 1; fi
 cp "$work/state-good" "$STATE_FILE"
 bash "$work/fixture/install.sh" --status > "$work/state-view"
 grep -q '4/8 (50%)' "$work/state-view"

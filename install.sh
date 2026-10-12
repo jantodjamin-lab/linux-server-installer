@@ -120,6 +120,7 @@ done
 log "RUNNING Installer $VERSION; profiel $PROFILE; modus $mode"
 declare -A STEP_LABELS=([system]='Systeem- en compatibiliteitscontrole' [plan]='APT-bronnen en pakketbeschikbaarheid' [swap]='Swap controleren en minimaal 4 GiB realiseren' [app_packages]='APP-software installeren' [codex]='Codex installeren en als gewone gebruiker valideren' [nginx]='Nginx installeren en controleren' [postgres]='PostgreSQL 18 installeren' [database_check]='Databaseconfiguratie en service controleren' [resume]='Persistente configuratie en automatische resume controleren' [verification]='Eindvalidatie en installatierapport')
 if [[ $STATUS == complete || $CURRENT == verification || " $COMPLETED " == *' verification '* ]]; then
+  CURRENT=verification
   pending_completed=''
   for recorded_phase in $COMPLETED; do
     [[ $recorded_phase == verification ]] || pending_completed="${pending_completed:+$pending_completed }$recorded_phase"

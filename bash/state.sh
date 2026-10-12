@@ -32,6 +32,14 @@ state_load() {
     esac
   done < "$STATE_FILE"
   [[ ( ${#seen[@]} == 6 || ${#seen[@]} == 9 ) && ${seen[profile]:-} && ${seen[version]:-} && ${seen[completed]:-} && ${seen[current]:-} && ${seen[status]:-} && ${seen[updated]:-} && -n $PROFILE && -n $STATE_VERSION && -n $UPDATED ]] || { fail 'Onvolledig statusbestand'; return 1; }
+  if [[ $STATE_VERSION == 1.0.0-bash.3 ]]; then
+    case $CURRENT in
+      ''|system|plan|swap|resume|verification) ;;
+      app_packages|codex|nginx) [[ $PROFILE != database ]] || return 1;;
+      postgres|database_check) [[ $PROFILE != app ]] || return 1;;
+      *) fail 'Onbekende hervatfase; handmatige beoordeling vereist'; return 1;;
+    esac
+  fi
 }
 state_progress() {
   local phase count=0 total

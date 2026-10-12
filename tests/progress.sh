@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 base=$(cd -- "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d /tmp/uli-progress-test.XXXXXXXX)
-trap 'rm -rf -- "$work"' EXIT
+trap 'result=$?; if ((result)); then printf "Progress-test evidence: %s\n" "$work" >&2; else rm -rf -- "$work"; fi' EXIT
 # shellcheck disable=SC1091
 source "$base/bash/progress.sh"
 export PROGRESS_PLAIN=1
@@ -52,16 +52,17 @@ set -Eeuo pipefail
 source "$PROGRESS_TEST_BASE/bash/progress.sh"
 unset PROGRESS_PLAIN
 export TERM=xterm PROGRESS_INTERVAL=0.1 NO_COLOR=1
+stty cols 80 rows 24
 progress_init app
 [[ $PROGRESS_DYNAMIC == 1 ]]
 trap progress_stop EXIT
 progress_begin system 'TTY heartbeat'
-sleep 0.35
+sleep 1
 [[ $(progress_percent) == 0 ]]
 progress_done system
-progress_begin plan 'TTY heartbeat plan'
+progress_begin plan 'TTY heartbeat plan with a deliberately long human description that must remain in START logs and never wrap the dynamic eighty column terminal frame'
 PROGRESS_STARTED=$(($(date +%s)-61)); progress_snapshot
-sleep 0.35
+sleep 1
 progress_stop
 trap - EXIT
 export TERM=dumb
@@ -77,7 +78,11 @@ PTY
   grep -q '12%' "$work/pty-output"
   grep -Fq '[--------------------]' "$work/pty-output"
   grep -Fq '[##------------------]' "$work/pty-output"
-  grep -q 'RUNNING.*totaal .*s; stap .*s' "$work/pty-output"
+  grep -q 'RUNNING/LONG.*T:.*s S:.*s' "$work/pty-output"
+  grep -q 'START TTY heartbeat plan with a deliberately long human description' "$work/pty-output"
+  [[ $(grep -o 'WARN Fase duurt langer dan 60s' "$work/pty-output" | wc -l) == 1 ]]
+  # Every dynamic frame must fit width-1. Full START/WARN log lines may wrap normally.
+  LC_ALL=C awk -v marker="$(printf '\033[2K')" 'BEGIN {RS="\r"; frames=0} index($0,marker)==1 {text=substr($0,length(marker)+1); sub(/\n.*/,"",text); if(text ~ /^\[/) {frames++; if(length(text)>79) exit 1}} END {if(!frames) exit 1}' "$work/pty-output"
   grep -q 'PROGRESS 1/7 (14%) DONE system' "$work/pty-output"
   echo 'PASS real PTY heartbeat, elapsed warning and NO_COLOR ASCII rendering'
 else

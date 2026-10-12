@@ -77,9 +77,11 @@ progress_begin() {
   # Labels cannot inject control sequences into the terminal or snapshot format.
   PROGRESS_LABEL=$(printf '%s' "$PROGRESS_LABEL" | LC_ALL=C tr -cd '[:print:]')
   progress_snapshot || return
-  if (( ! PROGRESS_DYNAMIC )); then
-    printf 'PROGRESS %s/%s (%s%%) START %s\n' "$PROGRESS_COUNT" "$PROGRESS_TOTAL" "$(progress_percent)" "$PROGRESS_LABEL"
-  fi
+  local prefix='' message
+  # A leading newline in the same write keeps full logs off a concurrent frame.
+  (( ! PROGRESS_DYNAMIC )) || prefix=$'\n'
+  printf -v message '%sPROGRESS %s/%s (%s%%) START %s\n' "$prefix" "$PROGRESS_COUNT" "$PROGRESS_TOTAL" "$(progress_percent)" "$PROGRESS_LABEL"
+  printf '%s' "$message"
 }
 
 progress_done() {
@@ -95,28 +97,55 @@ progress_done() {
   fi
 }
 
+progress_terminal_width() {
+  local size _rows columns
+  size=$(stty size <&"$PROGRESS_FD" 2>/dev/null) || size='0 80'
+  read -r _rows columns <<< "$size"
+  if [[ ! $columns =~ ^[0-9]+$ ]] || (( columns < 2 || columns > 500 )); then columns=80; fi
+  printf '%s\n' "$columns"
+}
+
+progress_render_frame() {
+  local activity=$1 status=$2 count=$3 total=$4 percent=$5 label=$6 overall=$7 elapsed=$8
+  local width prefix suffix budget line
+  width=$(progress_terminal_width)
+  prefix="$(progress_bar "$count" "$total") $activity $status $count/$total $percent% "
+  suffix=" T:${overall}s S:${elapsed}s"
+  budget=$((width-1-${#prefix}-${#suffix}))
+  (( budget >= 0 )) || budget=0
+  line="$prefix${label:0:budget}$suffix"
+  printf '\r\033[2K%s' "${line:0:width-1}" >&"$PROGRESS_FD"
+}
+
 progress_renderer() {
   local owner=$1 count total started installed current label elapsed overall percent activity index=0 now status bar
   local last_notice heartbeat=${PROGRESS_PLAIN_HEARTBEAT:-30}
   last_notice=$(date +%s) || return
   [[ $heartbeat =~ ^[1-9][0-9]*$ ]] || heartbeat=30
   local -a frames=('|' '/' '-' '+')
+  local -A warned=()
   while kill -0 "$owner" 2>/dev/null; do
     if IFS=$'\t' read -r count total started installed current label < "$PROGRESS_DATA"; then
       now=$(date +%s)
       elapsed=$((now-started)); (( elapsed >= 0 )) || elapsed=0
       overall=$((now-installed)); (( overall >= 0 )) || overall=0
       percent=$((count*100/total))
-      label="$current: $label"
       activity=${frames[index%4]}; index=$((index+1))
       status=RUNNING
       [[ $current != - ]] || status=WAITING
       (( count < total )) || status=DONE
-      if (( elapsed >= 60 )) && [[ $status == RUNNING ]]; then label="$label - duurt langer; nog actief"; fi
+      if (( elapsed >= 60 )) && [[ $status == RUNNING ]]; then
+        status=RUNNING/LONG
+        if [[ -z ${warned["${current}_${started}"]:-} ]]; then
+          warned["${current}_${started}"]=1
+          if (( PROGRESS_DYNAMIC )); then printf '\r\033[2K' >&"$PROGRESS_FD"; fi
+          printf 'WARN Fase duurt langer dan 60s; nog actief: %s\n' "$label"
+        fi
+      fi
       bar=$(progress_bar "$count" "$total")
       if (( PROGRESS_DYNAMIC )); then
-        printf '\r\033[2K%s [%s] %s %s/%s %s%% %s (totaal %ss; stap %ss)' "$bar" "$activity" "$status" "$count" "$total" "$percent" "$label" "$overall" "$elapsed" >&"$PROGRESS_FD"
-      elif [[ $status == RUNNING ]] && (( now-last_notice >= heartbeat )); then
+        progress_render_frame "$activity" "$status" "$count" "$total" "$percent" "$label" "$overall" "$elapsed"
+      elif [[ $status == RUNNING* ]] && (( now-last_notice >= heartbeat )); then
         printf 'PROGRESS %s RUNNING %s/%s (%s%%) %s (totaal %ss; stap %ss)\n' "$bar" "$count" "$total" "$percent" "$label" "$overall" "$elapsed"
         last_notice=$now
       fi
@@ -132,7 +161,8 @@ progress_stop() {
     PROGRESS_PID=''
   fi
   if [[ ${PROGRESS_DYNAMIC:-0} == 1 ]]; then
-    printf '\r\033[2KPROGRESS %s/%s (%s%%) %s\n' "$PROGRESS_COUNT" "$PROGRESS_TOTAL" "$(progress_percent)" "$PROGRESS_LABEL" >&"$PROGRESS_FD"
+    progress_render_frame '-' STOPPED "$PROGRESS_COUNT" "$PROGRESS_TOTAL" "$(progress_percent)" "$PROGRESS_LABEL" "$(($(date +%s)-PROGRESS_INSTALL_STARTED))" "$(($(date +%s)-PROGRESS_STARTED))"
+    printf '\n' >&"$PROGRESS_FD"
   fi
   if [[ ${PROGRESS_OWNS_FD:-0} == 1 ]]; then exec {PROGRESS_FD}>&-; unset PROGRESS_FD; fi
   if [[ -n ${PROGRESS_DIRECTORY:-} ]]; then
