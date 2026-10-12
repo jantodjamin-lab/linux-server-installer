@@ -139,11 +139,21 @@ app_verify() {
   app_codex_verify
 }
 
-app_install() {
-  uli_apt_install git python3 dotnet-sdk-10.0 nodejs npm nginx ca-certificates || return
-  app_codex_install || return
+app_packages_install() {
+  uli_apt_install git python3 dotnet-sdk-10.0 nodejs npm ca-certificates
+}
+
+app_nginx_install() {
+  uli_apt_install nginx || return
   nginx -t || return
   systemctl enable --now nginx || return
+  systemctl is-active --quiet nginx
+}
+
+app_install() {
+  app_packages_install || return
+  app_codex_install || return
+  app_nginx_install || return
   app_verify || { fail 'APP service- of versiecontrole mislukt'; return 1; }
   pass 'APP-profiel geïnstalleerd en gecontroleerd'
 }

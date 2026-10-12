@@ -1,5 +1,7 @@
 # BASH-V1-001 — Codex execution permissions
 
+Historical bash.2 acceptance. Its source manifest is retained as `evidence/BASH2-TESTED-INSTALLER.sha256`; the current manifest and bootstrap/progress acceptance are documented in BASH-V1-002.md.
+
 Version: **1.0.0-bash.2**. Technical acceptance: **PASS** for the tested Ubuntu 26.04.1 LTS amd64/ext4 environment. The independent public-download verification and final repository commit IDs are recorded in the release attachment `BASH-V1-001-VERIFICATION.md`. A TEST-O installation still requires separate permission.
 
 Root cause: installer umask 077 was inherited by npm; the implicit `/opt/universal-linux-installer` parent and extracted executable files became 0700. Root-only `--version` validation missed the permission failure.

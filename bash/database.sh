@@ -36,12 +36,15 @@ database_verify() {
   [[ $insecure == 0 ]] || { fail 'PostgreSQL HBA wijkt af van veilige lokale standaard; geen automatische wijziging'; return 1; }
 }
 
-database_install() {
+database_packages_install() {
   # Existing package postinst may start a stopped cluster: validate beforehand.
   if [[ -e /etc/postgresql/18/main/postgresql.conf ]]; then
     database_prestart_security || return
   fi
   uli_apt_install postgresql-18 || return
+}
+
+database_service_install() {
   # Distribution postinst creates 18/main only when safe. Never recreate clusters.
   [[ -f /etc/postgresql/18/main/postgresql.conf ]] || {
     fail 'PostgreSQL 18/main ontbreekt; geen automatische clustercreatie bij onzekere toestand'; return 1;
@@ -50,4 +53,9 @@ database_install() {
   systemctl enable --now postgresql@18-main || return
   database_verify || { fail 'DATABASE service- of beveiligingscontrole mislukt'; return 1; }
   pass 'DATABASE-profiel geïnstalleerd; lokale peer/SCRAM-authenticatie gecontroleerd'
+}
+
+database_install() {
+  database_packages_install || return
+  database_service_install
 }

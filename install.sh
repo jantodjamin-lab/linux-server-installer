@@ -4,8 +4,8 @@ umask 077
 export LC_ALL=C
 INSTALLER_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 VERSION=$(cat "$INSTALLER_DIR/VERSION")
-for module in common checks state swap app database; do source "$INSTALLER_DIR/bash/$module.sh"; done
-requested='' yes=0 mode=menu completed_patch_upgrade=0
+for module in common checks state swap app database progress; do source "$INSTALLER_DIR/bash/$module.sh"; done
+requested='' yes=0 mode=menu completed_patch_upgrade=0 migration_preparing=0
 while (( $# )); do
   case $1 in
     --profile) (( $# >= 2 )) || { fail 'Profiel ontbreekt'; exit 1; }; requested=$2; shift;;
@@ -19,8 +19,18 @@ while (( $# )); do
   shift
 done
 show_status() {
+  local public=$ROOT/var/lib/universal-linux-installer-status/status
+  if (( EUID != 0 )) && [[ ${ULI_TEST_MODE:-0} != 1 ]]; then
+    if [[ -f $public && ! -L $public && $(stat -c %u "$public") == 0 && $(stat -c %a "$public") == 644 ]]; then
+      cat "$public"; return
+    fi
+    if [[ -e $STATE_DIR ]]; then
+      printf 'WARN Bestaande private status: bekijk als administrator met bash install.sh --status.\n'; return
+    fi
+  fi
   state_load || return
-  printf 'Profiel: %s\nVersie: %s\nStatus: %s\nVoltooid: %s\nOnderbroken stap: %s\nLaatste wijziging: %s\n' "$PROFILE" "$STATE_VERSION" "$STATUS" "$COMPLETED" "$CURRENT" "$UPDATED"
+  printf 'Voortgang: %s\n' "$(state_progress)"
+  printf 'Installerversie: %s\nGeregistreerde versie: %s\nProfiel: %s\nStatus: %s\nVoltooide stappen: %s\nActuele stap: %s\nStart: %s\nEinde: %s\nLaatste wijziging: %s\nLaatste fout: %s\nLog: %s/install.log\n' "$VERSION" "${STATE_VERSION:-geen}" "${PROFILE:-geen}" "${STATUS^^}" "${COMPLETED:-geen}" "${CURRENT:-geen}" "${STARTED:-geen}" "${ENDED:-geen}" "${UPDATED:-geen}" "${LAST_ERROR:-geen}" "$STATE_DIR"
 }
 if [[ $mode == status ]]; then show_status; exit; fi
 if [[ $mode == audit ]]; then
@@ -30,19 +40,28 @@ if [[ $mode == audit ]]; then
   exit
 fi
 if [[ $mode == menu && -z $requested ]]; then
-  printf '=====================================\n UNIVERSAL LINUX SERVER INSTALLER\n=====================================\n\n1. APP-server installeren\n2. DATABASE-server installeren\n3. APP + DATABASE installeren\n4. Installatiestatus bekijken\n0. Afsluiten\n\nMaak uw keuze: '
-  read -r choice || exit 1
-  case $choice in 1) requested=app;; 2) requested=database;; 3) requested=combined;; 4) show_status; exit;; 0) exit;; *) fail 'Ongeldige keuze'; exit 1;; esac
+  while :; do
+    printf '==================================================\n       UNIVERSAL LINUX INSTALLER - BASH V1\n==================================================\n\n  1. APP SERVER\n  2. DATABASE SERVER\n  3. APP + DATABASE SERVER\n\n  4. INSTALLATIESTATUS\n  5. AFSLUITEN\n\n==================================================\n\nMaak uw keuze [1-5]: '
+    read -r choice || { fail 'Geen menukeuze ontvangen'; exit 1; }
+    case $choice in
+      1) requested=app; break;; 2) requested=database; break;; 3) requested=combined; break;;
+      4) show_status; exit;; 5) exit;; *) warn 'Ongeldige keuze; kies een nummer van 1 t/m 5.';;
+    esac
+  done
 fi
 case $requested in APP|app) requested=app;; DB|database) requested=database;; APP+DB|combined) requested=combined;; '') ;; *) fail 'Ongeldig profiel'; exit 1;; esac
 checks_system
 if [[ $mode != resume ]]; then
-  printf 'Installatieplan: profiel %s; minimaal 4 GiB swap; veilige pakketinstallatie; automatische hervatting.\n' "$requested"
+  printf 'Installatieplan: profiel %s; minimaal 4 GiB swap; getekende pakketten; automatische hervatting en eindvalidatie.\n' "$requested"
   [[ $requested == database ]] || printf 'APP: Git, Python 3 ontwikkeltool, .NET 10 SDK, Node.js/npm, Codex CLI %s, Nginx.\n' "$CODEX_VERSION"
   [[ $requested == app ]] || printf 'DATABASE: PostgreSQL 18, lokale toegang, servicecontrole.\n'
   active=$(swap_active_bytes)
   printf 'Actieve swap: %s bytes; noodzakelijk tekort: %s bytes.\n' "$active" "$((active >= 4294967296 ? 0 : 4294967296-active))"
-  if (( ! yes )); then printf 'Bevestig installatie [ja/nee]: '; read -r answer; [[ $answer == ja ]] || exit 0; fi
+  if (( ! yes )); then
+    printf 'Bevestig installatie met ja [ja/nee]: '
+    read -r answer || { fail 'Geen bevestiging ontvangen'; exit 1; }
+    if [[ $answer != ja ]]; then pass 'Installatie geannuleerd; geen systeemwijzigingen'; exit 0; fi
+  fi
 fi
 if (( EUID != 0 )); then
   [[ $mode != resume ]] || { fail 'Automatisch hervatten vereist root'; exit 1; }
@@ -59,51 +78,122 @@ if [[ $mode == resume ]]; then
 else
   if [[ -n $PROFILE && $PROFILE != "$requested" ]]; then fail 'Bestaand profiel verschilt; handmatige beoordeling vereist'; exit 1; fi
   if [[ -n $STATE_VERSION && $STATE_VERSION != "$VERSION" ]]; then
-    if state_codex_patch_eligible; then
-      completed_patch_upgrade=1
+    if state_codex_patch_eligible; then completed_patch_upgrade=1
     else fail 'Bestaande status gebruikt een andere installerversie'; exit 1; fi
   fi
   PROFILE=$requested
+fi
+migration_preparing=$completed_patch_upgrade
+trap progress_stop EXIT
+if [[ ${TERM:-dumb} != dumb && -t 1 ]]; then
+  { exec {PROGRESS_FD}>/dev/tty; } 2>/dev/null || true
 fi
 [[ ! -L $STATE_DIR/install.log ]] || { fail 'Onveilig logbestand'; exit 1; }
 if [[ -e $STATE_DIR/install.log ]]; then
   [[ -f $STATE_DIR/install.log && $(stat -c %u "$STATE_DIR/install.log") == 0 && $(stat -c %a "$STATE_DIR/install.log") == 600 ]] || { fail 'Onveilige logrechten'; exit 1; }
 fi
-exec > >(tee -a "$STATE_DIR/install.log") 2>&1
-trap 'result=$?; trap - ERR; fail "Stap ${CURRENT:-verification} onderbroken (exit $result)" || true; STATUS=failed; state_save || true; exit "$result"' ERR
-if [[ $STATUS == complete || ( $STATUS == failed && $CURRENT == verification ) ]]; then
-  verification_was_failed=0
-  [[ $STATUS != failed ]] || verification_was_failed=1
-  CURRENT=verification
+exec > >(exec 9>&-; tee -a "$STATE_DIR/install.log") 2>&1
+installer_error() {
+  local result=$1
+  trap - ERR INT TERM HUP
+  if (( migration_preparing )); then
+    fail "Migratievoorbereiding onderbroken; oorspronkelijke status behouden. Log: $STATE_DIR/install.log" || true
+    exit "$result"
+  fi
+  STATUS=failed LAST_ERROR=step_${CURRENT:-verification}_exit_${result}
+  ENDED=$(date -u +%FT%TZ)
+  fail "Stap ${CURRENT:-verification} onderbroken (exit $result); log: $STATE_DIR/install.log" || true
+  state_save || true
+  exit "$result"
+}
+trap 'installer_error "$?"' ERR
+trap 'installer_error 130' INT
+trap 'installer_error 143' TERM
+trap 'installer_error 129' HUP
+STARTED=${STARTED:-$(date -u +%FT%TZ)}
+progress_init "$PROFILE"
+PROGRESS_INSTALL_STARTED=$(date -u -d "$STARTED" +%s)
+progress_snapshot
+for recorded_phase in $COMPLETED; do
+  if progress_known "$recorded_phase"; then progress_done "$recorded_phase"; fi
+done
+log "RUNNING Installer $VERSION; profiel $PROFILE; modus $mode"
+declare -A STEP_LABELS=([system]='Systeem- en compatibiliteitscontrole' [plan]='APT-bronnen en pakketbeschikbaarheid' [swap]='Swap controleren en minimaal 4 GiB realiseren' [app_packages]='APP-software installeren' [codex]='Codex installeren en als gewone gebruiker valideren' [nginx]='Nginx installeren en controleren' [postgres]='PostgreSQL 18 installeren' [database_check]='Databaseconfiguratie en service controleren' [resume]='Persistente configuratie en automatische resume controleren' [verification]='Eindvalidatie en installatierapport')
+if [[ $STATUS == complete || $CURRENT == verification || " $COMPLETED " == *' verification '* ]]; then
+  pending_completed=''
+  for recorded_phase in $COMPLETED; do
+    [[ $recorded_phase == verification ]] || pending_completed="${pending_completed:+$pending_completed }$recorded_phase"
+  done
+  COMPLETED=$pending_completed
+  progress_invalidate verification
+  progress_begin verification "${STEP_LABELS[verification]}"
   if (( completed_patch_upgrade )); then
+    migration_preparing=1
     if ! state_authorize_codex_patch || ! resume_service_install; then
-      fail 'Rechtenpatch niet voorbereid; oorspronkelijke status behouden, geautoriseerd herhalen vereist' || true
+      fail 'Versiemigratie niet voorbereid; oorspronkelijke status behouden, geautoriseerd herhalen vereist' || true
       exit 1
     fi
+    migration_preparing=0
+  else
+    STATUS=running CURRENT=verification
+    state_save
   fi
-  if ! swap_ensure verify; then STATUS=failed; state_save; fail 'Afgeronde installatie: swapcontrole mislukt; handmatige beoordeling vereist'; exit 1; fi
-  if [[ $PROFILE != app ]] && ! database_verify; then STATUS=failed; state_save; fail 'Afgeronde installatie: DATABASE-componenten wijken af; handmatige beoordeling vereist'; exit 1; fi
+  CURRENT=verification
+  if ! swap_ensure verify; then installer_error 1; fi
+  if [[ $PROFILE != app ]] && ! database_verify; then installer_error 1; fi
   if [[ $PROFILE != database ]]; then
-    if ! app_codex_permissions_repair || ! app_verify; then STATUS=failed; state_save; fail 'APP-componenten of Codex-gebruikersrechten voldoen niet'; exit 1; fi
+    if ! app_codex_permissions_repair || ! app_verify; then installer_error 1; fi
   fi
-  CURRENT='' STATUS=complete
-  if (( completed_patch_upgrade || verification_was_failed )); then state_save; fi
+  resume_service_install
+  state_login_status_install
+  COMPLETED=''
+  # shellcheck disable=SC2153 # Array populated by sourced progress_init.
+  for phase in "${PROGRESS_IDS[@]}"; do
+    COMPLETED="${COMPLETED:+$COMPLETED }$phase"
+    progress_done "$phase"
+  done
+  CURRENT='' STATUS=complete ENDED=$(date -u +%FT%TZ)
+  state_save
   if (( completed_patch_upgrade )); then rm -f -- "$STATE_DIR/codex-permissions-patch" || warn 'Patchmarker blijft afgeschermd bewaard'; fi
-  pass 'Installatie reeds afgerond en gecontroleerd'; exit
+  pass 'COMPLETE Installatie reeds afgerond en gecontroleerd'; exit
 fi
-STATUS=running; state_save
+STATUS=running ENDED=''; state_save
+# A reboot must not turn an uncertain interrupted dpkg transaction into an
+# automatic repair merely because the earlier package-plan phase completed.
+case $CURRENT in
+  app_packages|nginx|postgres)
+    dpkg_audit=$(dpkg --audit)
+    [[ -z $dpkg_audit ]] || { fail 'Onvoltooide dpkg-transactie; handmatig onderzoek vereist'; exit 1; }
+  ;;
+esac
+# Stage safe reboot code before the first package/swap mutation. Count resume
+# only when the final persistent configuration has also been verified.
 resume_service_install
-CURRENT=apt_update; state_save
-run_apt update
-CURRENT=checks_packages; state_save
-checks_packages
-# Swap is verified on every authorized run, including after reboot.
+state_login_status_install
+state_step system checks_system
+plan_install() { run_apt update && checks_packages; }
+state_step plan plan_install
 CURRENT=swap; state_save
+progress_begin swap "${STEP_LABELS[swap]}"
 swap_ensure
-CURRENT=''; state_save
-[[ $PROFILE == database ]] || state_step app app_install
-[[ $PROFILE == app ]] || state_step database database_install
-if [[ $PROFILE != database ]]; then app_codex_permissions_repair; app_verify; fi
-[[ $PROFILE == app ]] || database_verify
-CURRENT='' STATUS=complete; state_save
-pass 'Installatie voltooid'
+if [[ " $COMPLETED " != *' swap '* ]]; then COMPLETED="${COMPLETED:+$COMPLETED }swap"; fi
+CURRENT=''; state_save; progress_done swap
+if [[ $PROFILE != database ]]; then
+  state_step app_packages app_packages_install
+  state_step codex app_codex_install
+  state_step nginx app_nginx_install
+fi
+if [[ $PROFILE != app ]]; then
+  state_step postgres database_packages_install
+  state_step database_check database_service_install
+fi
+resume_configuration() { resume_service_install && state_login_status_install; }
+state_step resume resume_configuration
+final_verification() {
+  swap_ensure verify || return
+  if [[ $PROFILE != database ]]; then app_codex_permissions_repair && app_verify || return; fi
+  [[ $PROFILE == app ]] || database_verify
+}
+state_step verification final_verification
+CURRENT='' STATUS=complete ENDED=$(date -u +%FT%TZ); state_save
+pass "COMPLETE Installatie voltooid; log: $STATE_DIR/install.log"

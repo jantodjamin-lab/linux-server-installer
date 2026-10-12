@@ -1,5 +1,7 @@
 # Archive inventory
 
+Bash.3 keeps this historical material in Git and earlier releases. New installer release archives omit `archive/`; `.gitattributes` also marks it `export-ignore` for generated source archives. The [Git archive documentation](https://git-scm.com/docs/git-archive) describes this attribute. No historical source files or Git history are removed.
+
 **CLOSED – SUPERSEDED BY BASH V1.**
 
 The complete Python working copy, committed baseline, last public commit and private preflight/tests are retained under `archive/python-installer/`. Research, exact working-tree patch and historical test evidence are under `archive/research/`. Git history and old releases remain intact. All historical Markdown carries a closure banner; archived code and workflows are inert.

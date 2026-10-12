@@ -1,0 +1,15 @@
+Universal Linux Installer bash.3 — **NO-GO pending actual VM and public-bootstrap validation**.
+
+The one-liner pins the bootstrap SHA256 before syntax-checking or running it. That authenticated bootstrap contains the fixed release archive URL, version and trusted archive SHA256. No remote checksum is used as the trust anchor. GNU tar member validation rejects traversal, absolute paths, links, special files/modes, duplicates, ambiguous/control-character names, missing modules and oversized archives before extraction. Downloads/extraction require no sudo; installation obtains sudo only after the chosen plan and explicit ja.
+
+The bootstrap and exact one-liner are generated outside the archive after its SHA256 exists. The published repository README contains the exact command. Its clearly marked publication block is stripped when packaging README, preventing a circular archive hash and preserving reproducible rebuilds. Historical archive/ files remain in Git and older releases but are excluded from bash.3 payloads.
+
+Menu: 1 APP, 2 DATABASE, 3 combined, 4 status, 5 exit. There is no default profile. Invalid input is retried; cancellation makes no system changes. Existing --audit, --status, --profile and --yes interfaces remain available.
+
+Progress phase IDs: system, plan, swap; app_packages/codex/nginx for APP; postgres/database_check for DATABASE; resume and verification. Profile totals are 8/7/10. Equal-weight percentages count only successfully completed persisted phases. An ASCII terminal bar and spinner show elapsed total/step time; a long step remains at the same percentage. Plain logs emit a bounded periodic activity message instead of ANSI animation. NO_COLOR and TERM=dumb are supported.
+
+Private progress/state/code remain root-owned under /var/lib/universal-linux-installer. Started/ended time and bounded error identifiers extend the previous six-field schema to nine fields, while old state remains readable. A root-owned 0644 sanitized status snapshot in a separate 0755 directory contains no credentials or raw package output. An interactive /etc/profile.d helper displays it after login without modifying SSH. Menu/status/audit read data without changing the system.
+
+Completed bash.2 installations may be explicitly authorized for verification-only migration; completed bash.1 APP/combined permissions repair is retained. Incomplete older-version migrations stop safely, leaving their versioned resume code intact. A private authorization marker bridges interruption after service switching but before version commit; signals during preparation preserve original state. Unfinished same-version phases resume without replaying completed package mutations, and uncertain dpkg/swap state stops safely.
+
+Iteration 1: local static/fixture/real-PTY checks. Iteration 2: full disposable Ubuntu 26.04.1 amd64 VM matrix, including pinned HTTPS candidate one-liner. Iteration 3: independent public archive/bootstrap verification and exact published one-liner in a clean VM. Results will be recorded before final technical GO. No TEST-O, production, SSH/firewall or provider changes are authorized.

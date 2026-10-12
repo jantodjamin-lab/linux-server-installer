@@ -14,7 +14,7 @@ IMAGE_URL=${IMAGE_URL:-https://cloud-images.ubuntu.com/releases/resolute/release
 case "$IMAGE_URL" in https://cloud-images.ubuntu.com/releases/resolute/*/ubuntu-26.04-server-cloudimg-amd64.img|https://cloud-images.ubuntu.com/resolute/*/resolute-server-cloudimg-amd64.img) ;; *) exit 2;; esac
 # Only disposable CI-runner prerequisites; no development host or real target changes.
 sudo apt-get -o DPkg::Lock::Timeout=600 update
-sudo apt-get -o DPkg::Lock::Timeout=600 -y install qemu-system-x86 qemu-utils cloud-image-utils gpg gpgv
+sudo apt-get -o DPkg::Lock::Timeout=600 -y install qemu-system-x86 qemu-utils cloud-image-utils gpg gpgv openssl
 image_dir="$RUNNER_TEMP/verified-image"
 mkdir -m 700 "$image_dir" "$image_dir/gnupg"
 image_name=${IMAGE_URL##*/}
@@ -38,6 +38,7 @@ curl -q --fail --location --connect-timeout 30 --max-time 300 --proto '=https' -
 printf '%s  %s\n' "$verified_sha" "$image_dir/$image_name" | sha256sum -c -
 cp "$image_dir/SHA256SUMS" "$image_dir/signature-status.txt" e2e-logs/
 export ULI_VM_IMAGE="$image_dir/$image_name" ULI_VM_SHA256="$verified_sha" TMPDIR="$PWD/e2e-logs"
+export ULI_PUBLIC_ARCHIVE_SHA="${PUBLIC_ARCHIVE_SHA:-}"
 # Smoke all three profiles with real systemd, TransIP mirror and APP development tools.
 # Each parallel fault job selects exactly one fresh-VM interruption event.
 vm_result=0

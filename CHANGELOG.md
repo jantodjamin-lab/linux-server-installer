@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0-bash.3
+
+- BASH-V1-002: pinned two-hash bootstrap trust chain, strict archive path/type validation and automatic interactive launch.
+- Menu choices 1–5 and explicit ja; CLI audit/status/profile options preserved.
+- Real completed-phase progress (APP 8 / DATABASE 7 / combined 10), ASCII/no-color TTY display, elapsed/activity and plain periodic log output.
+- Granular package/service phases, backward-compatible private metadata, public sanitized status and login display; existing safe resume retained.
+- Historical Python/research archives retained in Git but excluded from new release archives.
+
 ## 1.0.0-bash.2
 
 - BASH-V1-001: repair root-only Codex permissions using a bounded runtime allowlist and actual unprivileged validation.

@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 profile=${1:-APP}; scenario=${2:-swap0}
 case $profile in APP|DB|APP+DB) ;; *) exit 2;; esac
-case $scenario in swap0|swap2|swap4|interruption|swap-interruption|transip|codex-repair) ;; *) exit 2;; esac
+case $scenario in swap0|swap2|swap4|interruption|swap-interruption|transip|codex-repair|baseline-reuse|bootstrap-candidate|bootstrap-public) ;; *) exit 2;; esac
 for cmd in qemu-system-x86_64 qemu-img cloud-localds tar timeout sha256sum base64; do
  command -v "$cmd" >/dev/null || { echo "BLOCKED missing $cmd" >&2; exit 77; }
 done
@@ -15,8 +15,55 @@ mkdir "$work/artifacts"
 tar -czf "$work/installer.tar.gz" -C "$base" install.sh bash VERSION
 payload=$(base64 -w0 "$work/installer.tar.gz")
 previous_payload=''
-if [[ $scenario == codex-repair ]]; then
- git -C "$base" archive 7f8e74f0f8fc7892abc10ba5b2f1c5b63f612db1 install.sh bash VERSION | gzip -n > "$work/previous.tar.gz"
+bootstrap_payload='' fixture_ca=''
+fixture_pid=''
+trap 'if [[ -n $fixture_pid ]]; then kill "$fixture_pid" 2>/dev/null || true; fi' EXIT
+if [[ $scenario == bootstrap-candidate || $scenario == bootstrap-public ]]; then
+ [[ $profile == DB ]] || { echo 'Bootstrap acceptance requires DB profile' >&2; exit 2; }
+ version=$(cat "$base/VERSION")
+ [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]
+ if [[ $scenario == bootstrap-candidate ]]; then
+  command -v openssl >/dev/null
+  bash "$base/tools/release.sh"
+  archive=$base/release/universal-linux-installer-$version.tar.gz
+  archive_sha=$(sha256sum "$archive" | awk '{print $1}')
+  mkdir -m 700 "$work/https"
+  cp "$archive" "$work/https/"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=isolated-uli-fixture' \
+   -addext 'subjectAltName=IP:10.0.2.2' -addext 'basicConstraints=critical,CA:TRUE' \
+   -keyout "$work/fixture.key" -out "$work/fixture.crt" > "$work/fixture-cert.log" 2>&1
+  fixture_ca=$(base64 -w0 "$work/fixture.crt")
+  (cd "$work/https" && exec openssl s_server -accept 127.0.0.1:8443 -cert "$work/fixture.crt" -key "$work/fixture.key" -WWW -quiet) > "$work/https.log" 2>&1 & fixture_pid=$!
+  for ((attempt=0;attempt<10;attempt++)); do
+   if curl -q --fail --silent --connect-timeout 2 --max-time 5 --cacert "$work/fixture.crt" --resolve 10.0.2.2:8443:127.0.0.1 --noproxy '*' "https://10.0.2.2:8443/universal-linux-installer-$version.tar.gz" -o "$work/fixture-check.tar.gz"; then break; fi
+   sleep 0.1
+  done
+  [[ $(sha256sum "$work/fixture-check.tar.gz" | awk '{print $1}') == "$archive_sha" ]]
+ else
+  archive_sha=${ULI_PUBLIC_ARCHIVE_SHA:-}
+  [[ $archive_sha =~ ^[a-f0-9]{64}$ ]] || { echo 'Trusted public archive SHA required' >&2; exit 2; }
+  archive=$work/public-release.tar.gz
+  curl -q --fail --location --proto '=https' --proto-redir '=https' --connect-timeout 30 --max-time 300 --max-filesize 33554432 \
+   "https://github.com/jantodjamin-lab/linux-server-installer/releases/download/v$version/universal-linux-installer-$version.tar.gz" --output "$archive"
+  [[ $(sha256sum "$archive" | awk '{print $1}') == "$archive_sha" ]]
+ fi
+ if [[ $scenario == bootstrap-candidate ]]; then
+  bash "$base/tools/render-bootstrap.sh" "$version" "$archive" "$work/rendered" \
+   "https://10.0.2.2:8443/universal-linux-installer-$version.tar.gz" 'https://10.0.2.2:8443/bootstrap.sh'
+  cp "$work/rendered/bootstrap.sh" "$work/https/bootstrap.sh"
+ else
+  bash "$base/tools/render-bootstrap.sh" "$version" "$archive" "$work/rendered"
+ fi
+ # Execute the generated user command, including HTTPS bootstrap download/pin.
+ bootstrap_payload=$(base64 -w0 "$work/rendered/ONE-LINER.txt")
+ cp "$work/rendered/ONE-LINER.txt" "$work/artifacts/bootstrap-command.txt"
+ cp "$work/rendered/BOOTSTRAP.sha256" "$work/artifacts/BOOTSTRAP.sha256"
+ printf 'version=%s\narchive_sha256=%s\nscenario=%s\n' "$version" "$archive_sha" "$scenario" > "$work/artifacts/bootstrap-pins.txt"
+fi
+if [[ $scenario == codex-repair || $scenario == baseline-reuse ]]; then
+ previous_commit=7f8e74f0f8fc7892abc10ba5b2f1c5b63f612db1
+ [[ $scenario != baseline-reuse ]] || previous_commit=cf024d7b23eb94a008db560760a3878f7f825ea4
+ git -C "$base" archive "$previous_commit" install.sh bash VERSION | gzip -n > "$work/previous.tar.gz"
  previous_payload=$(base64 -w0 "$work/previous.tar.gz")
 fi
 cat > "$work/guest.sh" <<'GUEST'
@@ -66,15 +113,66 @@ if [[ ! -e /var/lib/uli-vm-firstboot ]]; then
   chmod 600 /existing-swap; mkswap /existing-swap; swapon /existing-swap
   echo '/existing-swap none swap sw 0 0' >> /etc/fstab
  fi
- if [[ $SCENARIO == codex-repair ]]; then
+ if [[ $SCENARIO == bootstrap-candidate || $SCENARIO == bootstrap-public ]]; then
+  [[ ! -e /var/lib/universal-linux-installer/state ]]
+  if [[ $SCENARIO == bootstrap-candidate ]]; then
+   install -m 644 /opt/fixture-ca.crt /usr/local/share/ca-certificates/uli-test-fixture.crt
+   update-ca-certificates
+  fi
+  id ubuntu > /evidence/bootstrap-user.txt
+  # script allocates the controlling terminal required by the exact bootstrap.
+  printf '2\nja\n' | runuser -u ubuntu -- env TERM=xterm script --quiet --return --command '/bin/bash /opt/candidate-bootstrap.sh' /tmp/uli-bootstrap-session.txt
+  cp /tmp/uli-bootstrap-session.txt /evidence/bootstrap-pty.txt
+  grep -q 'UNIVERSAL LINUX INSTALLER' /evidence/bootstrap-pty.txt
+  grep -q 'Bevestig installatie' /evidence/bootstrap-pty.txt
+  grep -Eq '\[[#-]{20}\]' /evidence/bootstrap-pty.txt
+  grep -Eq '7/7.*100%' /evidence/bootstrap-pty.txt
+  [[ -f /var/lib/universal-linux-installer/state ]]
+  grep -qx 'profile=database' /var/lib/universal-linux-installer/state
+  grep -qx 'status=complete' /var/lib/universal-linux-installer/state
+  [[ $(stat -c %u /var/lib/universal-linux-installer/state) == 0 && $(stat -c %a /var/lib/universal-linux-installer/state) == 600 ]]
+  target_version=$(cat /opt/installer/VERSION)
+  staged=/var/lib/universal-linux-installer/installer-$target_version
+  [[ -d $staged && $(stat -c %u "$staged") == 0 && $(stat -c %a "$staged") == 700 ]]
+  for component in /opt/installer/install.sh /opt/installer/VERSION /opt/installer/bash/*.sh /opt/installer/bash/assets/codex/*.json; do
+   relative=${component#/opt/installer/}
+   cmp "$component" "$staged/$relative"
+   sha256sum "$staged/$relative" >> /evidence/bootstrap-staged-source.sha256
+  done
+  sha256sum /var/lib/universal-linux-installer/state > /evidence/state-before-status.sha256
+  runuser -u ubuntu -- /bin/bash /opt/installer/install.sh --status > /evidence/status-normal-user.txt
+  grep -qx 'Status: COMPLETE' /evidence/status-normal-user.txt
+  grep -q 'Voortgang: 7/7 (100%)' /evidence/status-normal-user.txt
+  [[ $(stat -c %u /var/lib/universal-linux-installer-status/status) == 0 && $(stat -c %a /var/lib/universal-linux-installer-status/status) == 644 ]]
+  runuser -u ubuntu -- test -r /etc/profile.d/universal-linux-installer-status.sh
+  runuser -u ubuntu -- env TERM=xterm script --quiet --return --command "/bin/bash --login -i -c ':'" /tmp/uli-login-session.txt </dev/null
+  cp /tmp/uli-login-session.txt /evidence/login-status-pty.txt
+  grep -q 'UNIVERSAL LINUX INSTALLER' /evidence/login-status-pty.txt
+  sha256sum -c /evidence/state-before-status.sha256
+  echo 'PASS pinned HTTPS archive bootstrap, real ubuntu PTY menu authorization and root staging' > /evidence/bootstrap-result.txt
+ elif [[ $SCENARIO == codex-repair || $SCENARIO == baseline-reuse ]]; then
   bash /opt/previous-installer/install.sh --profile "$PROFILE" --yes
+  previous_version=$(cat /opt/previous-installer/VERSION)
   /usr/local/bin/codex --version
-  if runuser -u ubuntu -- /usr/local/bin/codex --version >/dev/null 2>&1; then echo 'FAIL previous release did not reproduce root-only Codex'; false; fi
+  if [[ $SCENARIO == codex-repair ]]; then
+   if runuser -u ubuntu -- /usr/local/bin/codex --version >/dev/null 2>&1; then echo 'FAIL previous release did not reproduce root-only Codex'; false; fi
+  else
+   runuser -u ubuntu -- /usr/local/bin/codex --version > /evidence/baseline-codex-normal-user.txt
+   grep -qx 'codex-cli 0.128.0' /evidence/baseline-codex-normal-user.txt
+  fi
   cp /var/lib/universal-linux-installer/state /evidence/state-before-codex-repair
   # Harmless private fixtures prove permissions repair does not expose data.
   install -d -m 700 /opt/universal-linux-installer/codex/.private-permission-fixture
   (umask 077; printf 'private regression fixture\n' > /opt/universal-linux-installer/codex/.private-permission-fixture/config)
   sha256sum /opt/universal-linux-installer/codex/.private-permission-fixture/config > /evidence/private-fixture.sha256
+  if [[ $SCENARIO == baseline-reuse ]]; then
+   cat > /usr/local/sbin/apt-get <<'BASELINE_APT_WRAPPER'
+#!/usr/bin/env bash
+echo 'FAIL APT mutation during complete baseline reuse' > /evidence/unexpected-baseline-apt
+exit 1
+BASELINE_APT_WRAPPER
+   chmod 755 /usr/local/sbin/apt-get
+  fi
   # Interrupt precisely after switching the resume unit but before committing
   # the new state version. The persistent authorization must bridge this reboot.
   cat > /usr/local/sbin/systemctl <<'SYSTEMCTL_WRAPPER'
@@ -92,7 +190,7 @@ SYSTEMCTL_WRAPPER
   bash install.sh --profile "$PROFILE" --yes & pid=$!
   for ((i=0;i<900;i++)); do [[ ! -e /evidence/codex-patch-pause ]] || break; sleep 1; done
   [[ -e /evidence/codex-patch-pause ]]
-  grep -qx 'version=1.0.0-bash.1' /var/lib/universal-linux-installer/state
+  grep -qx "version=$previous_version" /var/lib/universal-linux-installer/state
   [[ $(stat -c %a /var/lib/universal-linux-installer/codex-permissions-patch) == 600 ]]
   cp /var/lib/universal-linux-installer/state /evidence/interrupted-codex-patch-state
   kill -0 "$pid"
@@ -138,12 +236,12 @@ APT_WRAPPER
   chmod 0755 /usr/local/sbin/apt-get
   bash install.sh --profile "$PROFILE" --yes & pid=$!
   for ((i=0;i<900;i++)); do
-   if [[ -e /evidence/pre-mutation-pause ]] && systemctl is-enabled --quiet universal-linux-installer-resume.service && grep -Eq "^current=(app|database)" /var/lib/universal-linux-installer/state 2>/dev/null; then break; fi
+   if [[ -e /evidence/pre-mutation-pause ]] && systemctl is-enabled --quiet universal-linux-installer-resume.service && grep -Eq "^current=(app_packages|codex|nginx|postgres|database_check|app|database)" /var/lib/universal-linux-installer/state 2>/dev/null; then break; fi
    sleep 1
   done
   systemctl is-enabled --quiet universal-linux-installer-resume.service
   [[ -e /evidence/pre-mutation-pause ]]
-  grep -Eq "^current=(app|database)" /var/lib/universal-linux-installer/state
+  grep -Eq "^current=(app_packages|codex|nginx|postgres|database_check|app|database)" /var/lib/universal-linux-installer/state
   cp /var/lib/universal-linux-installer/state /evidence/interrupted-state
   kill -0 "$pid"
  else
@@ -259,14 +357,22 @@ else
   if runuser -u ubuntu -- test -r /opt/universal-linux-installer/codex/.uli-managed; then false; fi
   # Other APP tools are package-managed; verify their actual nonroot execution.
   runuser -u ubuntu -- /bin/bash -c 'git --version; python3 --version; dotnet --list-sdks; node --version; npm --version; nginx -v' > /evidence/app-tools-normal-user.txt 2>&1
-  if [[ $SCENARIO == codex-repair ]]; then
-   grep -qx 'version=1.0.0-bash.2' /var/lib/universal-linux-installer/state
-   [[ -d /var/lib/universal-linux-installer/installer && -d /var/lib/universal-linux-installer/installer-1.0.0-bash.2 ]]
+  if [[ $SCENARIO == codex-repair || $SCENARIO == baseline-reuse ]]; then
+   previous_version=$(cat /opt/previous-installer/VERSION)
+   target_version=$(cat /opt/installer/VERSION)
+   grep -qx "version=$target_version" /var/lib/universal-linux-installer/state
+   if [[ $SCENARIO == codex-repair ]]; then
+    [[ -d /var/lib/universal-linux-installer/installer ]]
+   else
+    [[ -d /var/lib/universal-linux-installer/installer-$previous_version ]]
+   fi
+   [[ -d /var/lib/universal-linux-installer/installer-$target_version ]]
    [[ $(stat -c %a /opt/universal-linux-installer/codex/.private-permission-fixture) == 700 ]]
    [[ $(stat -c %a /opt/universal-linux-installer/codex/.private-permission-fixture/config) == 600 ]]
    sha256sum -c /evidence/private-fixture.sha256
    if runuser -u ubuntu -- test -r /opt/universal-linux-installer/codex/.private-permission-fixture/config; then false; fi
-   echo 'PASS actual bash.1 root-only Codex repaired across interrupted authorized bash.2 upgrade' > /evidence/codex-repair-result.txt
+   [[ ! -e /evidence/unexpected-baseline-apt ]]
+   echo "PASS actual $previous_version installation reused across interrupted authorized $target_version upgrade" > /evidence/codex-repair-result.txt
   fi
  fi
  if [[ $PROFILE != APP ]]; then
@@ -288,6 +394,14 @@ script=$(base64 -w0 "$work/guest.sh")
 cat > "$work/user-data" <<EOF2
 #cloud-config
 write_files:
+  - path: /opt/candidate-bootstrap.sh
+    permissions: '0644'
+    encoding: b64
+    content: "$bootstrap_payload"
+  - path: /opt/fixture-ca.crt
+    permissions: '0644'
+    encoding: b64
+    content: "$fixture_ca"
   - path: /opt/previous.tar.gz
     encoding: b64
     content: "$previous_payload"
@@ -313,7 +427,7 @@ write_files:
 runcmd:
   - mkdir -p /opt/installer
   - tar -xzf /opt/installer.tar.gz -C /opt/installer
-  - if [ "$scenario" = codex-repair ]; then mkdir -p /opt/previous-installer; tar -xzf /opt/previous.tar.gz -C /opt/previous-installer; fi
+  - if [ "$scenario" = codex-repair ] || [ "$scenario" = baseline-reuse ]; then mkdir -p /opt/previous-installer; tar -xzf /opt/previous.tar.gz -C /opt/previous-installer; fi
   - systemctl enable uli-vm-test.service
   - systemctl start --no-block uli-vm-test.service
 EOF2

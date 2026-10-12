@@ -3,6 +3,11 @@ on:
   push:
     branches: [bash-v1]
   workflow_dispatch:
+    inputs:
+      public_archive_sha:
+        description: Trusted published archive SHA256; runs only fresh-VM exact public one-liner acceptance
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -10,6 +15,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   offline:
+    if: ${{ inputs.public_archive_sha == '' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -23,6 +29,7 @@ jobs:
           sudo apt-get install -y shellcheck
           shellcheck -e SC1090,SC1091,SC2034,SC2154 install.sh bash/*.sh tools/*.sh tests/*.sh
   vm:
+    if: ${{ inputs.public_archive_sha == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     strategy:
@@ -47,6 +54,10 @@ jobs:
             scenario: transip
           - profile: APP+DB
             scenario: codex-repair
+          - profile: DB
+            scenario: bootstrap-candidate
+          - profile: APP+DB
+            scenario: baseline-reuse
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -62,6 +73,32 @@ jobs:
         if: always()
         with:
           name: bash-v1-${{ matrix.profile }}-${{ matrix.scenario }}
+          path: |
+            e2e-logs/status.txt
+            e2e-logs/SHA256SUMS
+            e2e-logs/signature-status.txt
+            e2e-logs/**/serial*.log
+            e2e-logs/**/artifacts/**
+  public-bootstrap:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.public_archive_sha != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Exact pinned public one-liner in a fresh Ubuntu VM
+        env:
+          PROFILE: DB
+          SCENARIO: bootstrap-public
+          IMAGE_SHA: ''
+          PUBLIC_ARCHIVE_SHA: ${{ inputs.public_archive_sha }}
+        run: bash tools/ci-vm.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: bash-v1-DB-bootstrap-public
           path: |
             e2e-logs/status.txt
             e2e-logs/SHA256SUMS

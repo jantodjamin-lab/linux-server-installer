@@ -13,7 +13,7 @@ app_verify() { echo verify-app >> "$work/events"; }
 nginx() { [[ $1 == -t ]]; }
 systemctl() { printf 'service %s\n' "$*" >> "$work/events"; }
 app_install
-[[ $(cat "$work/packages") == 'git python3 dotnet-sdk-10.0 nodejs npm nginx ca-certificates' ]]
+[[ $(head -1 "$work/packages") == 'git python3 dotnet-sdk-10.0 nodejs npm ca-certificates' && $(tail -1 "$work/packages") == nginx ]]
 [[ $(head -1 "$work/events") == codex && $(tail -1 "$work/events") == verify-app ]]
 echo 'PASS APP package set and component ordering'
 APT_RESULT=100

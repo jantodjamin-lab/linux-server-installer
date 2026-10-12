@@ -1,5 +1,11 @@
 # Recovery and automatic resume
 
+Bash.3 bootstraps stage the complete verified active Bash code before package/swap changes, under `/var/lib/universal-linux-installer/installer-1.0.0-bash.3`. The temporary downloaded payload can then disappear without breaking reboot resume. Completed package/service phase IDs persist, so skipped phases retain their genuine progress count. Every reboot rechecks swap and final components. Uncertain interrupted dpkg state stops safely.
+
+Started/ended timestamps and a bounded error identifier extend the private state schema; older six-field states remain readable. Ordinary `--status` and menu 4 read a root-owned public summary under `/var/lib/universal-linux-installer-status/status`. The managed interactive `/etc/profile.d/universal-linux-installer-status.sh` shows this summary after login, including during resume. It does not change SSH or firewalls. Last error history is retained even after successful recovery; full diagnostics remain in the private log.
+
+Completed bash.2 profiles may be explicitly authorized for verification-only migration to bash.3. Completed bash.1 APP/combined permissions repair also remains available. Incomplete older-version migrations are deliberately blocked: retain the matching versioned service/code and investigate. A private authorization marker bridges reboot during unit switching; all signals during preparation preserve original metadata until the new unit is ready.
+
 Progress is persistent under `/var/lib/universal-linux-installer/`: profile, installer version, completed steps, interrupted step, status and UTC update time. State is data, never executable shell code. A process lock prevents simultaneous installations.
 
 After the original confirmation the installer stages a root-owned copy and registers a systemd resume service. A reboot runs that copy, reads the original profile and checks completed components. Completed changes are not blindly reapplied. The swap invariant is checked after reboot, including completed installations; completed profiles never restart from the beginning.

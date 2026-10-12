@@ -14,5 +14,7 @@ tar -xzf "$archive" -C "$work"
 payload=$work/universal-linux-installer-$version
 (cd "$payload" && sha256sum -c FILES.sha256 > "$work/manifest-check.log")
 [[ -f $payload/bash/assets/codex/package-lock.json ]]
+[[ ! -e $payload/archive ]]
+if grep -q 'RELEASE-BOOTSTRAP:BEGIN' "$payload/README.md"; then exit 1; fi
 bash "$payload/tests/run.sh"
 echo 'PASS release deterministic rebuild, external/internal checksum and extracted offline regression'

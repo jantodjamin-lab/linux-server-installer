@@ -8,10 +8,15 @@ work=$(mktemp -d /tmp/uli-release.XXXXXXXX)
 trap 'rm -rf -- "$work"' EXIT
 name=universal-linux-installer-$version
 mkdir "$work/$name"
-for path in install.sh README.md VERSION CHANGELOG.md SECURITY.md bash docs tests tools archive .github; do
+for path in install.sh README.md VERSION CHANGELOG.md SECURITY.md bash docs tests tools .github; do
  [[ -e $base/$path && ! -L $base/$path ]]
  cp -a -- "$base/$path" "$work/$name/"
 done
+# The exact trusted launch command is published after the archive hash exists.
+# Removing this external publication block avoids a circular archive checksum
+# and makes rebuilds identical before and after README publication.
+sed '/^<!-- RELEASE-BOOTSTRAP:BEGIN -->$/,/^<!-- RELEASE-BOOTSTRAP:END -->$/d' "$work/$name/README.md" > "$work/readme"
+mv "$work/readme" "$work/$name/README.md"
 # Archives are inert; active scripts must not depend on Python or source archive code.
 if grep -nE 'archive/|python3?[[:space:]]+-|curl[^#]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh' "$work/$name/install.sh" "$work/$name"/bash/*.sh; then exit 1; fi
 if find "$work/$name" -type l -print -quit | grep -q .; then echo 'FAIL symlink in payload' >&2; exit 1; fi

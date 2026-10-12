@@ -1,5 +1,9 @@
 # Installation
 
+For bash.3, copy the exact pinned one-liner from the repository README. It handles verified downloads, safe extraction and interactive launch as your ordinary account. Neither bootstrap download needs sudo. Choose 1 APP, 2 DATABASE or 3 combined and type `ja` after the plan; 4 is read-only status and 5 exits. The direct `bash install.sh` and CLI options remain available for verified offline archives.
+
+Installation has 8/7/10 actual completed phases according to the selected profile. The terminal's ASCII bar shows completed percentage plus activity/elapsed time; time does not change percentage. TERM=dumb and noninteractive CLI use plain logs with periodic activity messages. Public status contains only sanitized metadata; full logs remain root-private.
+
 Run `bash install.sh` from the verified, extracted release. Choose one profile, review the plan and confirm once. Checks and menu/status before authorization are read-only. Installation obtains root through sudo when needed. Do not run the installer on APP-O; TEST-O requires separate live-install permission.
 
 | Profile | Components |

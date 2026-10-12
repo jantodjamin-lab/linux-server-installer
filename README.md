@@ -1,6 +1,6 @@
 # Universal Linux Server Installer — Bash V1
 
-**BASH-V1-001 acceptance: PASS on actual Ubuntu 26.04.1 amd64/ext4 VMs, including ordinary-user Codex execution and reboot repair.** See [correction, test evidence and limits](docs/BASH-V1-001.md). Final public-download verification is attached to release `v1.0.0-bash.2`. Prior bash.1 root-only validation is historical.
+**BASH-V1-002 / bash.3: validation in progress — NO-GO until real VM and public one-liner acceptance pass.** Bash.2 remains the working baseline. See [bootstrap, menu and progress](docs/BASH-V1-002.md) and [prior Codex correction](docs/BASH-V1-001.md).
 
 Active installer code is Bash. Python 3 is installed only as an APP development tool.
 The previous implementation is **CLOSED – SUPERSEDED BY BASH V1** and retained under `archive/`.
@@ -11,7 +11,15 @@ Download the release archive and SHA256SUMS, verify `sha256sum -c SHA256SUMS`, e
 bash install.sh
 ```
 
-The menu offers APP, DATABASE, APP + DATABASE and read-only status. One confirmation authorizes the chosen plan. Root or sudo is required only for installation. No live installation is authorized on APP-O or TEST-O.
+The menu offers choices 1–5: APP, DATABASE, APP + DATABASE, read-only status and exit. Invalid input is retried; explicit `ja` authorizes the selected plan. Root or sudo is required only for installation. No live installation is authorized on APP-O or TEST-O.
+
+The pinned release bootstrap downloads and verifies both bootstrap and archive before execution. Its exact trusted one-liner is published below after the archive is finalized. This publication block is omitted from the archive README to avoid a circular checksum; rebuilding the archive does not depend on that block. Both downloads use immutable versioned release URLs, never “latest”.
+
+<!-- RELEASE-BOOTSTRAP:BEGIN -->
+Exact trusted command pending successful bash.3 acceptance and publication.
+<!-- RELEASE-BOOTSTRAP:END -->
+
+Progress counts actual completed phases: APP 8, DATABASE 7, combined 10. A terminal displays an ASCII bar, activity, current phase and elapsed time. Noninteractive execution uses plain step messages and periodic activity messages. Percentages never advance with elapsed time. State and private resume code persist independently of bootstrap temporary files.
 
 Targets: Ubuntu 26.04.1 LTS, signed Ubuntu repositories including the existing TransIP mirror. Filesystem support for newly created swap is deliberately bounded; unsupported filesystems fail safely. Existing swap is never removed.
 
@@ -28,7 +36,5 @@ linux-server-installer/
 ├── tests/             # isolated Bash regression tests
 ├── tools/             # Bash validation and release tools
 ├── .github/workflows/ # disposable VM acceptance
-└── archive/
-    ├── python-installer/
-    └── research/
+└── archive/           # Git repository only; excluded from bash.3 release archives
 ```

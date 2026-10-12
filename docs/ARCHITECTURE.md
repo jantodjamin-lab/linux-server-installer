@@ -1,5 +1,9 @@
 # Bash V1 architecture
 
+Bash.3 adds `bash/progress.sh`, a completed-phase renderer with private atomic snapshots and a disposable background activity process. Phase IDs are persisted in the existing private state, with backward-compatible start/end/error fields and a separate sanitized public status projection. APP and DATABASE package/service functions are separate idempotent phases. Final verification is repeated after reboot and invalidated while being rechecked.
+
+`tools/bootstrap-template.sh` and `tools/render-bootstrap.sh` generate externally published bootstrap/one-liner assets after archive creation. The trusted one-liner authenticates the bootstrap; its embedded archive hash authenticates every extracted file before syntax checks or execution. README's postbuild command block is excluded during packaging to avoid a circular hash. Python/research archives remain in Git, are exported-ignore and are not release payload dependencies.
+
 `install.sh` provides the menu, profile plan, one authorization and orchestration. Active implementation modules are solely Bash:
 
 | Module | Responsibility |
