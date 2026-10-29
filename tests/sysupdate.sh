@@ -118,7 +118,14 @@ setup two; result=0; ULI_TEST_TTY=0 run 'bijwerken\n' "$work/notty" --system-upd
 [[ $result == 1 ]] && grep -q 'interactieve terminal' "$work/notty" && [[ ! -s $MOCK_LOG && ! -e $ULI_ROOT ]]
 setup two; run 'ja\n' "$work/wrong-word" --system-update
 grep -q 'Systeemupdate geannuleerd' "$work/wrong-word" && [[ $(apt_actions) == simulate ]]
-echo 'PASS plan shown read-only; decline, wrong word, EOF and non-interactive change nothing'
+# Finding C: only the exact word "bijwerken" authorizes; anything else cancels before any mutation.
+for answer in 'Bijwerken' 'BIJWERKEN' ' bijwerken' 'bijwerken ' 'bijwerk' 'nee' 'y' 'yes' 'Y' 'bijwerken bijwerken'; do
+  setup two
+  run "$answer\n" "$work/variant" --system-update
+  grep -q 'Systeemupdate geannuleerd; er is niets gewijzigd' "$work/variant" || { echo "not cancelled: [$answer]"; exit 1; }
+  [[ $(apt_actions) == simulate && ! -e $ULI_ROOT && ! -s $MOCK_SUDO_LOG ]] || { echo "mutation after: [$answer]"; exit 1; }
+done
+echo 'PASS plan shown read-only; decline, near-miss words (case, spaces, nee, y), EOF and non-interactive change nothing'
 
 # Happy path (started as administrator): update strictly before upgrade.
 setup two
@@ -148,7 +155,16 @@ grep -q 'Systeemupdate voltooid: 3 pakket(ten)' "$work/changed-accept"
 grep -q 'Herstart aanbevolen; plan die zelf in' "$work/changed-accept"
 grep -q 'Herstart aanbevolen: ja' "$ULI_ROOT"/var/lib/universal-linux-installer/system-update-*.txt
 [[ ! -s $MOCK_FORBIDDEN_LOG ]]
-echo 'PASS changed plan after refresh is re-shown and re-confirmed; reboot only advised, never executed'
+# Re-confirmation after refresh also requires the exact word; EOF there stops without upgrade.
+for answer in 'ja' 'Bijwerken' 'y'; do
+  setup two three
+  run "bijwerken\n$answer\n" "$work/changed-variant" --system-update
+  [[ $(apt_actions) == 'simulate simulate update simulate' ]] || { echo "upgrade after [$answer]"; exit 1; }
+done
+setup two three
+result=0; run 'bijwerken\n' "$work/changed-eof" --system-update || result=$?
+[[ $(apt_actions) == 'simulate simulate update simulate' ]]
+echo 'PASS changed plan after refresh is re-shown and re-confirmed (exact word only, EOF stops); reboot only advised, never executed'
 
 # Approved digest differs from the privileged re-check: re-confirm or STOP.
 setup two
@@ -160,7 +176,14 @@ run '\n' "$work/uptodate" --system-update
 grep -q 'Upgrades: 0 pakket(ten)' "$work/uptodate"
 setup none; run 'bijwerken\n' "$work/uptodate-run" --system-update
 [[ $(apt_actions) == 'simulate simulate update simulate' ]] && grep -q 'Systeem is up-to-date' "$work/uptodate-run"
-echo 'PASS stale approval STOPs unless re-confirmed; up-to-date system refreshes index without upgrade'
+setup two
+run 'bijwerken\n' "$work/stale-accept" --system-update --approved-plan "$(printf '%064d' 0)"
+# Privileged phase only: re-check simulation, refresh, simulation, upgrade.
+[[ $(apt_actions) == 'simulate update simulate upgrade' ]]
+setup two
+result=0; run 'Bijwerken\n' "$work/stale-variant" --system-update --approved-plan "$(printf '%064d' 0)" || result=$?
+[[ $result == 1 && $(apt_actions) == simulate ]]
+echo 'PASS stale approval STOPs unless re-confirmed with the exact word; up-to-date system refreshes index without upgrade'
 
 # STOP conditions before anything changes.
 stop_case() { # label fixture expected-message [env...]

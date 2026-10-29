@@ -96,7 +96,18 @@ result=0; menu '2\nja\n' "$work/foreign-swap" || result=$?
 [[ $result == 1 ]] && grep -q 'onbekend bestaand installer-swapbestand' "$work/foreign-swap"
 [[ ! -s $ULI_ROOT/var/lib/universal-linux-installer/swapfile && ! -e $ULI_SUDO_LOG ]]
 rm -rf "$ULI_ROOT"
-echo 'PASS low disk, port conflicts and unknown swapfile STOP before confirmation; small disk and existing services WARN'
+# Finding A (O2 live): a RAM warning must be counted in the control verdict.
+mkdir -p "$ULI_ROOT/proc"; printf 'MemTotal:        1999000 kB\n' > "$ULI_ROOT/proc/meminfo"
+menu '1\nnee\n' "$work/low-ram"
+grep -q 'WARN  RAM: 1.9 GiB fysiek; minder dan 4 GiB' "$work/low-ram"
+grep -q 'Controle-uitslag: WARN (1 WARN)' "$work/low-ram"
+menu '6\n' "$work/low-ram-control" || true
+grep -q 'Controle-uitslag: WARN (1 WARN)' "$work/low-ram-control"
+printf 'MemTotal:        8000000 kB\n' > "$ULI_ROOT/proc/meminfo"
+menu '1\nnee\n' "$work/enough-ram"
+grep -q 'PASS  RAM: 7.6 GiB fysiek' "$work/enough-ram" && grep -q 'Controle-uitslag: PASS (0 WARN)' "$work/enough-ram"
+rm -rf "$ULI_ROOT"
+echo 'PASS low disk, port conflicts and unknown swapfile STOP before confirmation; small disk, low RAM and existing services WARN and are counted'
 
 # Non-root flows: real unprivileged user, mocked sudo; and a PATH without sudo.
 as_user=()

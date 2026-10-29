@@ -113,3 +113,28 @@ PTY
 else
   echo 'WARN real PTY progress test requires util-linux script'
 fi
+
+# Finding B (O2 live): the final frame must say DONE after a complete run and
+# STOPPED only when the run ends before all phases are complete.
+final_frame() { # profile phases-to-complete output
+  local profile=$1 count=$2 output=$3 index=0 phase
+  (
+    unset PROGRESS_FD
+    PROGRESS_PLAIN=1 progress_init "$profile" > /dev/null
+    exec {PROGRESS_FD}>"$output"
+    PROGRESS_DYNAMIC=1
+    for phase in "${PROGRESS_IDS[@]}"; do
+      (( index < count )) || break
+      progress_done "$phase" > /dev/null; index=$((index+1))
+    done
+    progress_stop
+  )
+}
+final_frame combined 10 "$work/final-complete"
+grep -q ' DONE 10/10 100% ' "$work/final-complete"
+if grep -q 'STOPPED' "$work/final-complete"; then echo 'complete run shown as STOPPED'; exit 1; fi
+final_frame combined 4 "$work/final-partial"
+grep -q ' STOPPED 4/10 40% ' "$work/final-partial"
+final_frame database 7 "$work/final-db"
+grep -q ' DONE 7/7 100% ' "$work/final-db"
+echo 'PASS final progress frame shows DONE when complete and STOPPED only when interrupted'

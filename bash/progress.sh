@@ -166,7 +166,10 @@ progress_stop() {
     PROGRESS_PID=''
   fi
   if [[ ${PROGRESS_DYNAMIC:-0} == 1 ]]; then
-    progress_render_frame '-' STOPPED "$PROGRESS_COUNT" "$PROGRESS_TOTAL" "$(progress_percent)" "$PROGRESS_LABEL" "$(($(date +%s)-PROGRESS_INSTALL_STARTED))" "$(($(date +%s)-PROGRESS_STARTED))"
+    # Same rule as the renderer: all phases complete is DONE; anything else STOPPED.
+    local final=STOPPED
+    (( PROGRESS_COUNT < PROGRESS_TOTAL )) || final=DONE
+    progress_render_frame '-' "$final" "$PROGRESS_COUNT" "$PROGRESS_TOTAL" "$(progress_percent)" "$PROGRESS_LABEL" "$(($(date +%s)-PROGRESS_INSTALL_STARTED))" "$(($(date +%s)-PROGRESS_STARTED))"
     printf '\n' >&"$PROGRESS_FD"
   fi
   if [[ ${PROGRESS_OWNS_FD:-0} == 1 ]]; then exec {PROGRESS_FD}>&-; unset PROGRESS_FD; fi

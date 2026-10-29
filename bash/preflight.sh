@@ -44,6 +44,18 @@ preflight_profile() {
     preflight_line FAIL 'Rechten: sudo ontbreekt; vraag een beheerder of start als root'
   fi
 
+  # Same 4 GiB threshold as checks_system, but counted in this verdict (O2 finding A).
+  local meminfo=/proc/meminfo ram_kib
+  [[ ! -f $ROOT/proc/meminfo ]] || meminfo=$ROOT/proc/meminfo
+  ram_kib=$(awk '/^MemTotal:/ {print $2; exit}' "$meminfo" 2>/dev/null) || ram_kib=''
+  if [[ ! $ram_kib =~ ^[0-9]+$ ]]; then
+    preflight_line WARN 'RAM: fysiek geheugen onbekend'
+  elif (( ram_kib >= 4194304 )); then
+    preflight_line PASS "RAM: $(preflight_gib $((ram_kib*1024))) GiB fysiek"
+  else
+    preflight_line WARN "RAM: $(preflight_gib $((ram_kib*1024))) GiB fysiek; minder dan 4 GiB (swap vervangt RAM niet)"
+  fi
+
   active=$(swap_active_bytes 2>/dev/null) || active=''
   if [[ $active =~ ^[0-9]+$ ]]; then
     shortage=$(( active >= 4294967296 ? 0 : 4294967296-active ))
