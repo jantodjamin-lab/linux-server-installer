@@ -8,8 +8,8 @@ met drie profielen: **APP**, **DB** of **APP + DB**. Niet voor productie gevalid
 | Versie | Status | Bron |
 | --- | --- | --- |
 | `1.0.0-bash.4` | Gepubliceerde prerelease; **huidige aanbevolen route** | Git `78f8c2c`; de tarball is byte-voor-byte reproduceerbaar met `tools/release.sh` |
-| `1.1.0-bash.3` | Als prerelease gepubliceerd, **niet aanbevolen** | Geen bron in Git; vereist Python; de eigen release notes noemen het een niet-vrijgegeven ontwikkelkandidaat |
-| `1.0.0-bash.5` | **Kandidaat op deze branch, niet gepubliceerd** | Deze branch |
+| `1.1.0-bash.3` | Als prerelease gepubliceerd, **niet aanbevolen** | Bron niet in deze repository (wel reproduceerbaar uit niet-publieke ontwikkelhistorie); vereist Python; de eigen release notes noemen het een niet-vrijgegeven ontwikkelkandidaat |
+| `1.0.0-bash.5` | **Kandidaat op deze branch, niet gepubliceerd** | Deze branch, voortbouwend op bash.4. Er bestaat ook een niet-publieke 1.1/1.2-ontwikkellijn; welke lijn wordt voortgezet is een open besluit |
 
 Versienummers zijn vaste pins, geen upgradepad: een server die met een andere
 versie is geïnstalleerd, wordt door een nieuwe versie niet stilzwijgend
