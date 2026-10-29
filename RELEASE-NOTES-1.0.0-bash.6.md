@@ -25,8 +25,8 @@ gevalideerd.
 - Live (eigenaar, schone Ubuntu 26.04.1-testhost): combined-profiel installatie 10/10 `COMPLETE`,
   twee herstarts, systeemupdate van 66 pakketten — PASS. Zie README.
 - **APP-only en DB-only: niet live getest**, alleen offline met mocks.
-- Offline: volledige testsuite (`bash tests/run.sh`), deterministische build
-  (`bash tests/release.sh`), shellcheck.
+- Offline: volledige testsuite, deterministische build en shellcheck in de (niet-publieke)
+  ontwikkelomgeving.
 
 ## Artefacten
 
@@ -35,9 +35,7 @@ gevalideerd.
 | `universal-linux-installer-1.0.0-bash.6.tar.gz` | `64171ef6d1f67f79e76920a7a0fba7f2f2755214974a0bcc64832f36e676dd20` |
 | `bootstrap.sh` | `8481178940339c20f18f0d7d8b02bcb19c4fb9b7589e8b10176a73caa6a213f8` |
 
-Bouwen: `bash tools/release.sh` en
-`bash tools/render-bootstrap.sh 1.0.0-bash.6 release/universal-linux-installer-1.0.0-bash.6.tar.gz <map>`
-(GNU tar 1.35, gzip 1.12).
+De artefacten zijn deterministisch gebouwd (GNU tar 1.35, gzip 1.12) en byte-gelijk herbouwbaar.
 
 ## Bekende beperkingen
 
