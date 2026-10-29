@@ -28,7 +28,9 @@ cat > "$work/expected" <<'LAYOUT'
 ./bash/preflight.sh
 ./bash/progress.sh
 ./bash/state.sh
+./bash/status.sh
 ./bash/swap.sh
+./bash/sysupdate.sh
 ./install.sh
 ./tools/register-install-now.sh
 LAYOUT
@@ -37,6 +39,6 @@ diff -u "$work/expected" "$work/layout"
 for script in "$payload/install.sh" "$payload"/bash/*.sh "$payload/tools/register-install-now.sh"; do bash -n "$script"; done
 tar -tvzf "$archive" --numeric-owner | awk '$2 != "0/0" {bad=1} END {exit bad}'
 printf '0\n' | ULI_TEST_MODE=1 ULI_ROOT=$work/root bash "$payload/install.sh" > "$work/menu.txt"
-grep -q '4) Controle  — read-only preflight' "$work/menu.txt"
+grep -q '5. SYSTEEM BIJWERKEN (APT UPDATE + APT UPGRADE)' "$work/menu.txt"
 [[ ! -e $work/root ]]
 echo 'PASS release deterministic rebuild, exact payload, external/internal checksum and extracted menu smoke'

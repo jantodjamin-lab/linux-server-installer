@@ -7,7 +7,7 @@ work=$(mktemp -d "${TMPDIR:-/tmp}/uli-bootstrap-tests.XXXXXXXX")
 trap 'rm -rf -- "$work"' EXIT
 version=1.0.0-test root=universal-linux-installer-1.0.0-test
 mkdir -p "$work/fixture/$root/bash/assets/codex" "$work/fixture/$root/tools" "$work/bin"
-for file in install.sh bash/common.sh bash/checks.sh bash/progress.sh bash/state.sh bash/swap.sh bash/app.sh bash/database.sh bash/preflight.sh; do
+for file in install.sh bash/common.sh bash/checks.sh bash/progress.sh bash/state.sh bash/swap.sh bash/app.sh bash/database.sh bash/preflight.sh bash/status.sh bash/sysupdate.sh; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$work/fixture/$root/$file"
 done
 printf '%s\n' "$version" > "$work/fixture/$root/VERSION"

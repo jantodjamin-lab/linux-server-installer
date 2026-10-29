@@ -4,16 +4,19 @@ umask 077
 export LC_ALL=C
 INSTALLER_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 VERSION=$(cat "$INSTALLER_DIR/VERSION")
-for module in common checks state swap app database progress preflight; do source "$INSTALLER_DIR/bash/$module.sh"; done
-requested='' yes=0 mode=menu completed_patch_upgrade=0 migration_preparing=0
+for module in common checks state swap app database progress preflight status sysupdate; do source "$INSTALLER_DIR/bash/$module.sh"; done
+requested='' yes=0 mode=menu completed_patch_upgrade=0 migration_preparing=0 approved_plan=''
 while (( $# )); do
   case $1 in
     --profile) (( $# >= 2 )) || { fail 'Profiel ontbreekt'; exit 1; }; requested=$2; shift;;
     --yes) yes=1;;
     --resume) mode=resume;;
-    --audit) mode=audit;;
+    --audit|--control) mode=audit;;
     --status) mode=status;;
-    --help) printf 'bash install.sh [--profile app|database|combined --yes] [--audit|--status|--resume]\n--audit is de read-only Controle (menukeuze 4).\n'; exit 0;;
+    --summary) mode=summary;;
+    --system-update) mode=sysupdate;;
+    --approved-plan) (( $# >= 2 )) || { fail 'Plangoedkeuring ontbreekt'; exit 1; }; approved_plan=$2; shift;;
+    --help) printf 'bash install.sh [--profile app|database|combined [--yes]] [--summary|--status|--audit|--system-update|--resume]\n  --summary        compacte installatiestatus (menukeuze 4)\n  --system-update  apt update + apt upgrade met plan en bevestiging (menukeuze 5)\n  --audit          alleen controle, read-only (menukeuze 6; ook --control)\n  --status         uitgebreide statusdetails\n'; exit 0;;
     *) fail "Onbekend argument: $1"; exit 1;;
   esac
   shift
@@ -41,17 +44,24 @@ run_control() {
   show_status || result=1
   return "$result"
 }
+[[ -z $approved_plan || $mode == sysupdate ]] || { fail '--approved-plan hoort alleen bij --system-update'; exit 1; }
+[[ $mode != sysupdate || -z $requested ]] || { fail '--system-update staat los van een installatieprofiel'; exit 1; }
 if [[ $mode == audit ]]; then run_control; exit; fi
+if [[ $mode == summary ]]; then status_summary; exit; fi
+if [[ $mode == sysupdate ]]; then
+  if sysupdate_main "$approved_plan"; then exit 0; else exit 1; fi
+fi
 if [[ $mode == menu && -z $requested ]]; then
   while :; do
-    printf 'Universal Linux Installer %s\n1) APP       — applicatieserver\n2) DB        — databaseserver\n3) APP + DB  — gecombineerde server\n4) Controle  — read-only preflight\n0) Stoppen\nMaak uw keuze [0-4]: ' "$VERSION"
+    printf '\nUNIVERSAL LINUX INSTALLER %s\n1. APP SERVER INSTALLEREN\n2. DATABASE SERVER INSTALLEREN\n3. APP + DATABASE SERVER INSTALLEREN\n4. INSTALLATIESTATUS\n5. SYSTEEM BIJWERKEN (APT UPDATE + APT UPGRADE)\n6. ALLEEN CONTROLE (READ-ONLY)\n0. AFSLUITEN\nMaak uw keuze [0-6]: ' "$VERSION"
     read -r choice || { fail 'Geen menukeuze ontvangen; er is niets gewijzigd'; exit 1; }
     case $choice in
       1) requested=app; break;; 2) requested=database; break;; 3) requested=combined; break;;
-      4) run_control; exit;;
-      # 5 was "Afsluiten" in 1.0.0-bash.3/.4; kept as a silent alias for muscle memory.
-      0|5) pass 'Gestopt; er is niets gewijzigd'; exit 0;;
-      *) warn 'Ongeldige keuze; kies 0, 1, 2, 3 of 4.';;
+      4) status_summary; exit;;
+      5) if sysupdate_main; then exit 0; else exit 1; fi;;
+      6) run_control; exit;;
+      0) pass 'Afgesloten; er is niets gewijzigd'; exit 0;;
+      *) warn 'Ongeldige keuze; kies 0 t/m 6.';;
     esac
   done
 fi
@@ -103,6 +113,7 @@ if [[ -e $STATE_DIR/install.log ]]; then
   [[ -f $STATE_DIR/install.log && $(stat -c %u "$STATE_DIR/install.log") == 0 && $(stat -c %a "$STATE_DIR/install.log") == 600 ]] || { fail 'Onveilige logrechten'; exit 1; }
 fi
 exec > >(exec 9>&-; tee -a "$STATE_DIR/install.log") 2>&1
+ui_init  # output now goes through tee into the log: plain text only
 readonly INSTALLER_OWNER_PID=$BASHPID
 installer_error() {
   local result=$1

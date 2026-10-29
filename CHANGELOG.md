@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-bash.6 (kandidaat, niet gepubliceerd)
+
+- Consolidation: this bash.4-based line is the single maintained installer; the unpublished 1.1/1.2 Python line is not continued.
+- Menu 0-6 with explicit labels; 4 compact read-only status, 5 system update, 6 read-only control. CLI: `--summary`, `--system-update`, `--control`.
+- System update (`bash/sysupdate.sh`): read-only plan, typed confirmation `bijwerken`, sudo on the terminal, installer lock, `apt-get update` before `apt-get upgrade`, re-confirmation when the plan changes, no `-y`/full-upgrade/autoremove/removals/reboot, version verification and sanitized 0600 audit report.
+- Compact status (`bash/status.sh`): state, step x/y, last successful step, components, swap, reboot, updates, next safe action; unknown is WARN.
+- Colours: green PASS, yellow WARN, red FAIL on terminals only; NO_COLOR, TERM=dumb, pipes and the installation log stay plain.
+- Installation modules (app, checks, database, progress, state, swap) unchanged from bash.4.
+
 ## 1.0.0-bash.5 (kandidaat, niet gepubliceerd)
 
 - Restore the traceable Bash source (Git `78f8c2c`) as the maintained source of truth; the published bash.4 archive is byte-for-byte reproducible from it.

@@ -7,9 +7,9 @@
 PREFLIGHT_FAILS=0 PREFLIGHT_WARNS=0
 preflight_line() {
   case $1 in
-    PASS) printf '  PASS  %s\n' "$2";;
-    WARN) printf '  WARN  %s\n' "$2"; PREFLIGHT_WARNS=$((PREFLIGHT_WARNS+1));;
-    FAIL) printf '  FAIL  %s\n' "$2"; PREFLIGHT_FAILS=$((PREFLIGHT_FAILS+1));;
+    PASS) printf '  %s  %s\n' "$(ui_label PASS)" "$2";;
+    WARN) printf '  %s  %s\n' "$(ui_label WARN)" "$2"; PREFLIGHT_WARNS=$((PREFLIGHT_WARNS+1));;
+    FAIL) printf '  %s  %s\n' "$(ui_label FAIL)" "$2"; PREFLIGHT_FAILS=$((PREFLIGHT_FAILS+1));;
     INFO) printf '  INFO  %s\n' "$2";;
   esac
 }
@@ -103,8 +103,10 @@ preflight_profile() {
   preflight_line INFO 'Geen apt upgrade, geen SSH-, firewall- of rebootwijziging; alleen de getoonde pakketten.'
   preflight_line INFO 'Er is geen herstart nodig; de installer herstart de server nooit zelf.'
   if (( PREFLIGHT_FAILS )); then
-    printf 'Controle-uitslag: FAIL (%s FAIL, %s WARN)\n' "$PREFLIGHT_FAILS" "$PREFLIGHT_WARNS"
+    printf 'Controle-uitslag: %s (%s FAIL, %s WARN)\n' "$(ui_label FAIL)" "$PREFLIGHT_FAILS" "$PREFLIGHT_WARNS"
     return 1
   fi
-  printf 'Controle-uitslag: %s (%s WARN)\n' "$( (( PREFLIGHT_WARNS )) && echo WARN || echo PASS)" "$PREFLIGHT_WARNS"
+  local verdict=PASS
+  (( PREFLIGHT_WARNS == 0 )) || verdict=WARN
+  printf 'Controle-uitslag: %s (%s WARN)\n' "$(ui_label "$verdict")" "$PREFLIGHT_WARNS"
 }

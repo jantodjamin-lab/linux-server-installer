@@ -48,17 +48,21 @@ for selection in 1 2 3; do
 done
 echo 'PASS every profile shows plan, read-only preflight and cancels on nee without writes'
 
-menu '4\n' "$work/control"
-for expected in 'Controle (read-only) voor alle profielen' 'Schijf APP:' 'Schijf DB:' 'Schijf APP + DB:' 'Controle-uitslag: PASS' "Installerversie: $version"; do
+menu '6\n' "$work/control"
+for expected in 'Controle (read-only) voor alle profielen' 'Schijf APP:' 'Schijf DB:' 'Schijf APP + DB:' 'Controle-uitslag: PASS'; do
   grep -q "$expected" "$work/control"
 done
 bash "$work/fixture/install.sh" --audit > "$work/audit-flag" 2>&1
 grep -q 'Controle-uitslag: PASS' "$work/audit-flag"
+bash "$work/fixture/install.sh" --control > "$work/control-flag" 2>&1
+grep -q 'Controle-uitslag: PASS' "$work/control-flag"
 no_writes
-echo 'PASS menu 4 and --audit run the same read-only control'
+echo 'PASS menu 6, --audit and --control run the same read-only control'
 
-menu '0\n' "$work/exit"; grep -q 'Gestopt; er is niets gewijzigd' "$work/exit"
-menu '5\n' "$work/exit-legacy"; grep -q 'Gestopt; er is niets gewijzigd' "$work/exit-legacy"
+menu '0\n' "$work/exit"; grep -q 'Afgesloten; er is niets gewijzigd' "$work/exit"
+# Former "5 = afsluiten" now opens the update plan, which never runs without a terminal.
+result=0; menu '5\n' "$work/five-no-tty" || result=$?
+[[ $result == 1 ]] && grep -q 'vereist een interactieve terminal' "$work/five-no-tty"
 menu 'geen\n9\n0\n' "$work/invalid"
 [[ $(grep -c 'Ongeldige keuze' "$work/invalid") == 2 ]]
 eof_result=0; bash "$work/fixture/install.sh" < /dev/null > "$work/eof" 2>&1 || eof_result=$?
@@ -66,7 +70,7 @@ eof_result=0; bash "$work/fixture/install.sh" < /dev/null > "$work/eof" 2>&1 || 
 eof_result=0; printf '2\n' | bash "$work/fixture/install.sh" > "$work/eof-confirm" 2>&1 || eof_result=$?
 [[ $eof_result == 1 ]] && grep -q 'Geen bevestiging ontvangen' "$work/eof-confirm"
 no_writes
-echo 'PASS stop 0/legacy 5, invalid input, EOF at menu and confirmation stop without writes'
+echo 'PASS stop 0, 5 without terminal, invalid input, EOF at menu and confirmation stop without writes'
 
 blocked() {
   local result=0
@@ -253,7 +257,8 @@ echo 'PASS repeated run over an older release or other profile is a hard STOP wi
 
 # Secrets from the operator environment never appear in plan or control output.
 export ULI_ROOT=$work/secret-root
-PGPASSWORD=uli-secret-value-1 GITHUB_TOKEN=uli-secret-value-2 menu '4\n' "$work/secret-control"
+PGPASSWORD=uli-secret-value-1 GITHUB_TOKEN=uli-secret-value-2 menu '6\n' "$work/secret-control"
+PGPASSWORD=uli-secret-value-1 GITHUB_TOKEN=uli-secret-value-2 menu '4\n' "$work/secret-status" || true
 PGPASSWORD=uli-secret-value-1 GITHUB_TOKEN=uli-secret-value-2 menu '3\nnee\n' "$work/secret-plan"
-if grep -q 'uli-secret-value' "$work/secret-control" "$work/secret-plan"; then exit 1; fi
+if grep -q 'uli-secret-value' "$work/secret-control" "$work/secret-plan" "$work/secret-status"; then exit 1; fi
 echo 'PASS plan and control output contain no environment secrets'

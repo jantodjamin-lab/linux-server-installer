@@ -95,8 +95,8 @@ bash "$base/install.sh" --audit > "$work/audit.txt" 2>&1 || true
 ok 'Read-only audit creates no installation payload'
 bash "$base/install.sh" --status > "$work/status.txt"
 printf '0\n' | bash "$base/install.sh" > "$work/menu.txt"
-grep -q 'Universal Linux Installer' "$work/menu.txt"
-grep -q '4) Controle  — read-only preflight' "$work/menu.txt"
+grep -q 'UNIVERSAL LINUX INSTALLER' "$work/menu.txt"
+grep -q '6. ALLEEN CONTROLE (READ-ONLY)' "$work/menu.txt"
 ok 'Menu exits without authorization or writes'
 if bash "$base/install.sh" --profile invalid --yes > "$work/invalid.txt" 2>&1; then exit 1; fi
 ok 'Invalid profile refused'
@@ -110,4 +110,7 @@ bash "$base/tests/progress.sh"
 bash "$base/tests/bootstrap.sh"
 bash "$base/tests/launcher.sh"
 bash "$base/tests/frontend.sh"
+bash "$base/tests/status.sh"
+bash "$base/tests/sysupdate.sh"
+bash "$base/tests/colors.sh"
 printf 'PASS %s offline contract groups plus swap matrix\n' "$passed"

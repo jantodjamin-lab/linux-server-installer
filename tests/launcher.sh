@@ -84,15 +84,15 @@ printf 'PASS one-time bootstrap, pinned registration, protected modes and idempo
 
 # The existing menu's exit option performs no installation or system-state write.
 run_pty $'0\n' "$launcher" "$work/menu-exit.log"
-for expected in '1) APP' '2) DB' '3) APP + DB' '4) Controle' '0) Stoppen'; do
+for expected in '1. APP SERVER INSTALLEREN' '2. DATABASE SERVER INSTALLEREN' '3. APP + DATABASE SERVER INSTALLEREN' '4. INSTALLATIESTATUS' '5. SYSTEEM BIJWERKEN (APT UPDATE + APT UPGRADE)' '6. ALLEEN CONTROLE (READ-ONLY)' '0. AFSLUITEN'; do
   grep -q "$expected" "$work/menu-exit.log"
 done
 [[ ! -e $ULI_ROOT ]]
-grep -q 'Universal Linux Installer' "$work/menu-exit.log"
+grep -q 'UNIVERSAL LINUX INSTALLER' "$work/menu-exit.log"
 printf 'PASS install-now opens existing menu and exits without installer state\n'
-run_pty $'5\n' "$launcher" "$work/menu-exit-repeat.log"
-grep -q '0) Stoppen' "$work/menu-exit-repeat.log"
-grep -q 'Gestopt; er is niets gewijzigd' "$work/menu-exit-repeat.log"
+run_pty $'0\n' "$launcher" "$work/menu-exit-repeat.log"
+grep -q '0. AFSLUITEN' "$work/menu-exit-repeat.log"
+grep -q 'Afgesloten; er is niets gewijzigd' "$work/menu-exit-repeat.log"
 [[ ! -e $ULI_ROOT ]]
 [[ $(sha256sum "$launcher" "$bootstrap") == "$sha_before" ]]
 [[ $(stat -c '%Y' "$launcher" "$bootstrap") == "$mtime_before" ]]

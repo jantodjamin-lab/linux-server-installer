@@ -9,7 +9,8 @@ met drie profielen: **APP**, **DB** of **APP + DB**. Niet voor productie gevalid
 | --- | --- | --- |
 | `1.0.0-bash.4` | Gepubliceerde prerelease; **huidige aanbevolen route** | Git `78f8c2c`; de tarball is byte-voor-byte reproduceerbaar met `tools/release.sh` |
 | `1.1.0-bash.3` | Als prerelease gepubliceerd, **niet aanbevolen** | Bron niet in deze repository (wel reproduceerbaar uit niet-publieke ontwikkelhistorie); vereist Python; de eigen release notes noemen het een niet-vrijgegeven ontwikkelkandidaat |
-| `1.0.0-bash.5` | **Kandidaat op deze branch, niet gepubliceerd** | Deze branch, voortbouwend op bash.4. Er bestaat ook een niet-publieke 1.1/1.2-ontwikkellijn; welke lijn wordt voortgezet is een open besluit |
+| `1.0.0-bash.5` | Kandidaat, niet gepubliceerd, vervangen door bash.6 | Branch `feature/uli-one-command-001` |
+| `1.0.0-bash.6` | **Kandidaat op deze branch, niet gepubliceerd** | Branch `feature/uli-consolidation-002`: de gekozen, enige verder te ontwikkelen lijn (bash.4 + bash.5 + menu, systeemupdate, kleuren, status). De niet-publieke 1.1/1.2-lijn wordt niet voortgezet |
 
 Versienummers zijn vaste pins, geen upgradepad: een server die met een andere
 versie is geïnstalleerd, wordt door een nieuwe versie niet stilzwijgend
@@ -52,47 +53,67 @@ of rebootwijziging.
 - Er zijn geen uitgeverhandtekeningen. HTTPS en GitHub zijn de transportlaag,
   geen herkomstbewijs.
 
-## Kandidaat 1.0.0-bash.5 (niet gepubliceerd)
+## Kandidaat 1.0.0-bash.6 (niet gepubliceerd)
 
-Wijzigingen ten opzichte van bash.4:
+Eén menu:
 
-- Eén eenvoudig menu:
+```text
+UNIVERSAL LINUX INSTALLER
+1. APP SERVER INSTALLEREN
+2. DATABASE SERVER INSTALLEREN
+3. APP + DATABASE SERVER INSTALLEREN
+4. INSTALLATIESTATUS
+5. SYSTEEM BIJWERKEN (APT UPDATE + APT UPGRADE)
+6. ALLEEN CONTROLE (READ-ONLY)
+0. AFSLUITEN
+```
 
-  ```text
-  Universal Linux Installer
-  1) APP       — applicatieserver
-  2) DB        — databaseserver
-  3) APP + DB  — gecombineerde server
-  4) Controle  — read-only preflight
-  0) Stoppen
-  ```
+| Keuze | bash.4 | bash.5 | bash.6 | CLI |
+| --- | --- | --- | --- | --- |
+| APP / DB / APP + DB | 1 / 2 / 3 | 1 / 2 / 3 | 1 / 2 / 3 | `--profile app\|database\|combined` |
+| Status | 4 (details) | — | 4 (compact) | `--summary`; details `--status` |
+| Systeem bijwerken | — | — | 5 | `--system-update` |
+| Controle (read-only) | — | 4 | 6 | `--audit` of `--control` |
+| Afsluiten | 5 | 0 (5 = alias) | 0 | — |
 
-  (`5` stopt ook, voor wie het oude menu gewend is.)
-- Een read-only **Controle** vóór iedere bevestiging: rechten, swap, vrije
-  schijfruimte, bestaande Nginx/PostgreSQL en bezette poorten 80/443/5432.
-  Een FAIL (te weinig schijf voor swap, bezette poort, onbekend swapbestand,
-  geen sudo) stopt het plan **voordat** er iets wordt gevraagd of gewijzigd.
-- `tools/render-bootstrap.sh` maakt `ONE-COMMAND.txt` met het leesbare
-  commando hierboven.
-- De release-build bevat alleen wat de bootstrap uitvoert en reproduceert de
-  gepubliceerde bash.4-tarball exact.
+Let op: in bash.4 was 5 "afsluiten". In bash.6 opent 5 alleen het **plan** voor
+een systeemupdate; er gebeurt niets zonder terminal en zonder het woord `bijwerken`.
+
+- **Systeem bijwerken (5)**: toont eerst read-only (`apt-get -s upgrade` op de
+  bestaande index) OS-versie, aantal en lijst upgrades, nieuwe pakketten,
+  holds/kept back, vrije schijf, mogelijke dienstonderbrekingen en
+  herstartindicatie. Pas na het woord `bijwerken` volgt sudo (wachtwoord alleen
+  via de terminal), dan onder de installerlock `apt-get update`, een nieuw plan
+  (gewijzigd ⇒ opnieuw tonen en bevestigen) en `apt-get upgrade` zonder `-y`
+  (APT vraagt zelf ook nog). Nooit `dist-upgrade`/`full-upgrade`,
+  `autoremove`, verwijderingen of een automatische herstart. STOP bij
+  niet-Ubuntu-bronnen, onveilige APT-configuratie, dpkg-conflict, removals,
+  installerlock, onderbroken installatie of geen interactieve terminal.
+  Gesaneerd auditrapport (0600) in `/var/lib/universal-linux-installer/`.
+- **Installatiestatus (4)**: compact en read-only: versie, toestand
+  (niet geïnstalleerd / bezig / voltooid / onderbroken / fout), stap x/y,
+  laatste geslaagde stap, Nginx/PostgreSQL/Codex (vereist `0.128.0`), swap,
+  herstart, updates volgens lokale index, logpad en volgende veilige actie.
+  Onbekend = WARN. Geen sudo, writes of netwerk.
+- **Kleuren**: PASS groen, WARN geel, FAIL rood, alleen op een terminal.
+  Uit bij `NO_COLOR`, `TERM=dumb`, redirects en in het installatielog.
+- **Controle (6)** en de preflight vóór elke installatiebevestiging uit bash.5
+  zijn functioneel ongewijzigd (nu met kleurlabels).
 
 Lokaal gebouwde, deterministische pins (nog **niet** gepubliceerd; de URL
 geeft nu 404):
 
 | Bestand | SHA256 |
 | --- | --- |
-| `universal-linux-installer-1.0.0-bash.5.tar.gz` | `b1a74337b389975a52de41570cbd74ea102b55a8f1f9f0a3e547fe297035d684` |
-| `bootstrap.sh` (standaard-URL's) | `95d5e03320100fbdb62101606df91ae5a4ca2701c6f320ad1582a0f91d02fbcd` |
-
-Na publicatie wordt het commando gelijk aan het bash.4-commando, met `v1.0.0-bash.5`
-in de URL en de bootstrap-hash hierboven.
+| `universal-linux-installer-1.0.0-bash.6.tar.gz` | `540d3813a2198240e26fe998ca6742fc9f49d4163ac396915439563b5a5004fc` |
+| `bootstrap.sh` (standaard-URL's) | `a605bc43c465a10a23a950e0a4a9979f6584892260996f7909a4259e908451f6` |
 
 ## Geavanceerde routes
 
 - **Direct een profiel** (bevestiging blijft verplicht):
   `bash uli-bootstrap.sh --profile app|database|combined`
-- **Alleen controleren**: `bash uli-bootstrap.sh --audit` (bash.5: zelfde als menukeuze 4)
+- **Alleen controleren**: `bash uli-bootstrap.sh --audit` (bash.6: menukeuze 6)
+- **Systeem bijwerken**: `bash uli-bootstrap.sh --system-update` (bash.6: menukeuze 5)
 - **Status**: `bash uli-bootstrap.sh --status`
 - **Offline**: download de tarball en `SHA256SUMS` van de release, controleer met
   `sha256sum -c SHA256SUMS`, pak uit en start `bash install.sh`.
