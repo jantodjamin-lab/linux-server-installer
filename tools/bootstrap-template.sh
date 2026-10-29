@@ -45,7 +45,7 @@ uli_bootstrap_validate() {
       [[ ${kinds[$parent]:-} == d ]] || { uli_bootstrap_fail 'Ontbrekende of conflicterende bovenmap'; return 1; }
     done
   done
-  for name in install.sh VERSION FILES.sha256 bash/common.sh bash/checks.sh bash/progress.sh bash/state.sh bash/swap.sh bash/app.sh bash/database.sh bash/assets/codex/package.json bash/assets/codex/package-lock.json tools/register-install-now.sh; do
+  for name in install.sh VERSION FILES.sha256 bash/common.sh bash/checks.sh bash/progress.sh bash/state.sh bash/swap.sh bash/app.sh bash/database.sh bash/preflight.sh bash/assets/codex/package.json bash/assets/codex/package-lock.json tools/register-install-now.sh; do
     [[ ${kinds[$root/$name]:-} == - ]] || { uli_bootstrap_fail "Releasebestand ontbreekt: $name"; return 1; }
   done
 }

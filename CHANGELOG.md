@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.0-bash.5 (kandidaat, niet gepubliceerd)
+
+- Restore the traceable Bash source (Git `78f8c2c`) as the maintained source of truth; the published bash.4 archive is byte-for-byte reproducible from it.
+- One simple menu: 1 APP, 2 DB, 3 APP + DB, 4 Controle (read-only preflight), 0 Stoppen; `5` remains a silent stop alias.
+- New read-only preflight (`bash/preflight.sh`) before every confirmation: privileges, swap, free disk, existing Nginx/PostgreSQL and listeners on 80/443/5432. FAIL stops before any question, sudo or write.
+- `tools/render-bootstrap.sh` emits `ONE-COMMAND.txt`: one readable line that verifies the pinned bootstrap before execution.
+- `tools/release.sh` builds only the executed distribution payload (the actual bash.4 layout); `tests/release.sh` checks the exact layout.
+- Tests for every profile, EOF, low disk, port conflicts, unknown swapfile, missing sudo, older-release rerun STOP, secrets in output, tampered/unreachable/wrong-version downloads.
+
 ## 1.0.0-bash.4
 
 - Add a pinned, checksum-verified one-time bootstrap that registers a persistent `install-now` command.

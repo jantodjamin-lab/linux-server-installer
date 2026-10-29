@@ -31,7 +31,7 @@ TMPDIR="${TMPDIR:-/tmp}" bash "$base/tools/release.sh" > "$work/release-build.lo
 version=$(cat "$base/VERSION")
 archive=$base/release/universal-linux-installer-$version.tar.gz
 bash "$base/tools/render-bootstrap.sh" "$version" "$archive" "$work/rendered" \
-  https://launcher.test/universal-linux-installer-$version.tar.gz https://launcher.test/bootstrap.sh > "$work/render.log"
+  "https://launcher.test/universal-linux-installer-$version.tar.gz" https://launcher.test/bootstrap.sh > "$work/render.log"
 cp "$work/rendered/bootstrap.sh" "$work/fixture-bootstrap.sh"
 cp "$archive" "$work/fixture-release.tar.gz"
 export ULI_FIXTURE_BOOTSTRAP=$work/fixture-bootstrap.sh ULI_FIXTURE_ARCHIVE=$work/fixture-release.tar.gz
@@ -53,7 +53,7 @@ run_pty $'nee\n' "$setup_command" "$work/no-confirmation.log"
 [[ ! -e $ULI_INSTALL_NOW_ROOT ]]
 grep -q 'Registratie geannuleerd' "$work/no-confirmation.log"
 [[ ! -e $ULI_ROOT ]]
-! grep -q 'persistent geregistreerd' "$work/no-confirmation.log"
+if grep -q 'persistent geregistreerd' "$work/no-confirmation.log"; then exit 1; fi
 printf 'PASS nee reaches confirmation and leaves no registration or installer state\n'
 if ULI_MOCK_CURL_MODE=bad_bootstrap run_pty '' "$setup_command" "$work/bootstrap-checksum-fail.log"; then exit 1; fi
 [[ ! -e $ULI_INSTALL_NOW_ROOT ]]
@@ -83,15 +83,16 @@ grep -q 'al geregistreerd; bestanden zijn ongewijzigd' "$work/register-repeat.lo
 printf 'PASS one-time bootstrap, pinned registration, protected modes and idempotent repeat\n'
 
 # The existing menu's exit option performs no installation or system-state write.
-run_pty $'5\n' "$launcher" "$work/menu-exit.log"
-for expected in '1. APP SERVER' '2. DATABASE SERVER' '3. APP + DATABASE SERVER' '4. INSTALLATIESTATUS' '5. AFSLUITEN'; do
+run_pty $'0\n' "$launcher" "$work/menu-exit.log"
+for expected in '1) APP' '2) DB' '3) APP + DB' '4) Controle' '0) Stoppen'; do
   grep -q "$expected" "$work/menu-exit.log"
 done
 [[ ! -e $ULI_ROOT ]]
-grep -q 'UNIVERSAL LINUX INSTALLER' "$work/menu-exit.log"
+grep -q 'Universal Linux Installer' "$work/menu-exit.log"
 printf 'PASS install-now opens existing menu and exits without installer state\n'
 run_pty $'5\n' "$launcher" "$work/menu-exit-repeat.log"
-grep -q '5. AFSLUITEN' "$work/menu-exit-repeat.log"
+grep -q '0) Stoppen' "$work/menu-exit-repeat.log"
+grep -q 'Gestopt; er is niets gewijzigd' "$work/menu-exit-repeat.log"
 [[ ! -e $ULI_ROOT ]]
 [[ $(sha256sum "$launcher" "$bootstrap") == "$sha_before" ]]
 [[ $(stat -c '%Y' "$launcher" "$bootstrap") == "$mtime_before" ]]

@@ -4,7 +4,7 @@ umask 077
 export LC_ALL=C
 INSTALLER_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 VERSION=$(cat "$INSTALLER_DIR/VERSION")
-for module in common checks state swap app database progress; do source "$INSTALLER_DIR/bash/$module.sh"; done
+for module in common checks state swap app database progress preflight; do source "$INSTALLER_DIR/bash/$module.sh"; done
 requested='' yes=0 mode=menu completed_patch_upgrade=0 migration_preparing=0
 while (( $# )); do
   case $1 in
@@ -13,7 +13,7 @@ while (( $# )); do
     --resume) mode=resume;;
     --audit) mode=audit;;
     --status) mode=status;;
-    --help) printf 'bash install.sh [--profile app|database|combined --yes] [--audit|--status|--resume]\n'; exit 0;;
+    --help) printf 'bash install.sh [--profile app|database|combined --yes] [--audit|--status|--resume]\n--audit is de read-only Controle (menukeuze 4).\n'; exit 0;;
     *) fail "Onbekend argument: $1"; exit 1;;
   esac
   shift
@@ -33,19 +33,25 @@ show_status() {
   printf 'Installerversie: %s\nGeregistreerde versie: %s\nProfiel: %s\nStatus: %s\nVoltooide stappen: %s\nActuele stap: %s\nStart: %s\nEinde: %s\nLaatste wijziging: %s\nLaatste fout: %s\nLog: %s/install.log\n' "$VERSION" "${STATE_VERSION:-geen}" "${PROFILE:-geen}" "${STATUS^^}" "${COMPLETED:-geen}" "${CURRENT:-geen}" "${STARTED:-geen}" "${ENDED:-geen}" "${UPDATED:-geen}" "${LAST_ERROR:-geen}" "$STATE_DIR"
 }
 if [[ $mode == status ]]; then show_status; exit; fi
-if [[ $mode == audit ]]; then
-  checks_system
-  printf 'Actieve swap bytes: %s\n' "$(swap_active_bytes)"
-  show_status
-  exit
-fi
+run_control() {
+  # Read-only: no sudo, no state or package writes. Exit 1 when a FAIL is found.
+  local result=0
+  checks_system || result=1
+  preflight_profile combined all || result=1
+  show_status || result=1
+  return "$result"
+}
+if [[ $mode == audit ]]; then run_control; exit; fi
 if [[ $mode == menu && -z $requested ]]; then
   while :; do
-    printf '==================================================\n       UNIVERSAL LINUX INSTALLER - BASH V1\n==================================================\n\n  1. APP SERVER\n  2. DATABASE SERVER\n  3. APP + DATABASE SERVER\n\n  4. INSTALLATIESTATUS\n  5. AFSLUITEN\n\n==================================================\n\nMaak uw keuze [1-5]: '
-    read -r choice || { fail 'Geen menukeuze ontvangen'; exit 1; }
+    printf 'Universal Linux Installer %s\n1) APP       — applicatieserver\n2) DB        — databaseserver\n3) APP + DB  — gecombineerde server\n4) Controle  — read-only preflight\n0) Stoppen\nMaak uw keuze [0-4]: ' "$VERSION"
+    read -r choice || { fail 'Geen menukeuze ontvangen; er is niets gewijzigd'; exit 1; }
     case $choice in
       1) requested=app; break;; 2) requested=database; break;; 3) requested=combined; break;;
-      4) show_status; exit;; 5) exit;; *) warn 'Ongeldige keuze; kies een nummer van 1 t/m 5.';;
+      4) run_control; exit;;
+      # 5 was "Afsluiten" in 1.0.0-bash.3/.4; kept as a silent alias for muscle memory.
+      0|5) pass 'Gestopt; er is niets gewijzigd'; exit 0;;
+      *) warn 'Ongeldige keuze; kies 0, 1, 2, 3 of 4.';;
     esac
   done
 fi
@@ -57,6 +63,10 @@ if [[ $mode != resume ]]; then
   [[ $requested == app ]] || printf 'DATABASE: PostgreSQL 18, lokale toegang, servicecontrole.\n'
   active=$(swap_active_bytes)
   printf 'Actieve swap: %s bytes; noodzakelijk tekort: %s bytes.\n' "$active" "$((active >= 4294967296 ? 0 : 4294967296-active))"
+  if ! preflight_profile "$requested"; then
+    fail 'Installatieplan geblokkeerd door FAIL in de controle; er is niets gewijzigd'
+    exit 1
+  fi
   if (( ! yes )); then
     printf 'Bevestig installatie met ja [ja/nee]: '
     read -r answer || { fail 'Geen bevestiging ontvangen'; exit 1; }

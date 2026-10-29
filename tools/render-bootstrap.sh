@@ -30,5 +30,9 @@ loader=${loader//@@BOOTSTRAP_SHA@@/$bootstrap_sha}
 # %q is Bash quoting; JSON serialization is never used for shell source.
 printf 'bash -c %q --\n' "$loader" > "$output/ONE-LINER.txt"
 printf 'bash -c %q install-now --register-install-now\n' "$loader" > "$output/BOOTSTRAP-INSTALL-NOW.txt"
+# Recommended operator route: one readable line. The bootstrap is downloaded to
+# a named file, checked against the pinned SHA256 and only then executed; the
+# bootstrap itself pins and validates the archive. Legacy files stay for compatibility.
+printf "curl --proto '=https' --tlsv1.2 -fsSLo uli-bootstrap.sh %s && echo '%s  uli-bootstrap.sh' | sha256sum -c - && bash uli-bootstrap.sh\\n" "$bootstrap_url" "$bootstrap_sha" > "$output/ONE-COMMAND.txt"
 chmod 600 "$output/BOOTSTRAP-INSTALL-NOW.txt"
 printf 'PASS rendered bootstrap for %s\nArchive SHA256: %s\nBootstrap SHA256: %s\n' "$version" "$archive_sha" "$bootstrap_sha"

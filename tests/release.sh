@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Deterministic distribution build: exact payload layout, internal manifest,
+# no development files, syntax and an offline menu smoke run from the archive.
 set -Eeuo pipefail
 base=$(cd -- "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d /tmp/uli-release-test.XXXXXXXX)
@@ -13,8 +15,28 @@ cmp "$work/first.tar.gz" "$archive"
 tar -xzf "$archive" -C "$work"
 payload=$work/universal-linux-installer-$version
 (cd "$payload" && sha256sum -c FILES.sha256 > "$work/manifest-check.log")
-[[ -f $payload/bash/assets/codex/package-lock.json ]]
-[[ ! -e $payload/archive ]]
-if grep -q 'RELEASE-BOOTSTRAP:BEGIN' "$payload/README.md"; then exit 1; fi
-bash "$payload/tests/run.sh"
-echo 'PASS release deterministic rebuild, external/internal checksum and extracted offline regression'
+(cd "$payload" && find . -type f | LC_ALL=C sort) > "$work/layout"
+cat > "$work/expected" <<'LAYOUT'
+./FILES.sha256
+./VERSION
+./bash/app.sh
+./bash/assets/codex/package-lock.json
+./bash/assets/codex/package.json
+./bash/checks.sh
+./bash/common.sh
+./bash/database.sh
+./bash/preflight.sh
+./bash/progress.sh
+./bash/state.sh
+./bash/swap.sh
+./install.sh
+./tools/register-install-now.sh
+LAYOUT
+diff -u "$work/expected" "$work/layout"
+[[ $(cat "$payload/VERSION") == "$version" ]]
+for script in "$payload/install.sh" "$payload"/bash/*.sh "$payload/tools/register-install-now.sh"; do bash -n "$script"; done
+tar -tvzf "$archive" --numeric-owner | awk '$2 != "0/0" {bad=1} END {exit bad}'
+printf '0\n' | ULI_TEST_MODE=1 ULI_ROOT=$work/root bash "$payload/install.sh" > "$work/menu.txt"
+grep -q '4) Controle  — read-only preflight' "$work/menu.txt"
+[[ ! -e $work/root ]]
+echo 'PASS release deterministic rebuild, exact payload, external/internal checksum and extracted menu smoke'
