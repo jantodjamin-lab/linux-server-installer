@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0-bash.6 (releasekandidaat, nog niet gepubliceerd)
+## 1.0.0-bash.6 (prerelease, 29 oktober 2026)
 
 Live accepted by the owner on Ubuntu 26.04.1 for the combined profile (commit 40c4d02); APP-only and DB-only not live-tested.
 Release-readiness fixes after that test (display only, no installation or update logic changed):

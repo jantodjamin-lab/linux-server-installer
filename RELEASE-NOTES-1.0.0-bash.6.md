@@ -1,7 +1,9 @@
-# Universal Linux Installer 1.0.0-bash.6 — release notes (concept)
+# Universal Linux Installer 1.0.0-bash.6 — release notes
 
-Status: **releasekandidaat, nog niet gepubliceerd.** Prerelease voor TEST-/ontwikkelservers op
-Ubuntu 26.04 LTS. Niet voor productie gevalideerd.
+Status: **gepubliceerd als prerelease** op 29 oktober 2026
+([release](https://github.com/jantodjamin-lab/linux-server-installer/releases/tag/v1.0.0-bash.6), tag
+`v1.0.0-bash.6` = `0db1998`). Voor TEST-/ontwikkelservers op Ubuntu 26.04 LTS. Niet voor productie
+gevalideerd.
 
 ## Nieuw ten opzichte van 1.0.0-bash.4
 
