@@ -221,6 +221,16 @@ MOCK_HOLDS='postgresql-18' run '\n' "$work/held" --system-update
 grep -q 'Vastgehouden (hold), blijven ongewijzigd: postgresql-18' "$work/held"
 echo 'PASS held and kept-back packages are shown as WARN'
 
+# A completed installation by an older release (bash.4) may be updated; state stays untouched.
+setup two
+mkdir -p "$ULI_ROOT/var/lib/universal-linux-installer"; chmod 700 "$ULI_ROOT/var/lib/universal-linux-installer"
+printf 'profile=combined\nversion=1.0.0-bash.4\ncompleted=system plan swap app_packages codex nginx postgres database_check resume verification\ncurrent=\nstatus=complete\nupdated=2026-10-28T00:00:00Z\n' > "$ULI_ROOT/var/lib/universal-linux-installer/state"
+chmod 600 "$ULI_ROOT/var/lib/universal-linux-installer/state"
+cp "$ULI_ROOT/var/lib/universal-linux-installer/state" "$work/bash4-state"
+run 'bijwerken\n' "$work/bash4-update" --system-update
+grep -q 'Systeemupdate voltooid' "$work/bash4-update" && cmp "$work/bash4-state" "$ULI_ROOT/var/lib/universal-linux-installer/state"
+echo 'PASS system update on a bash.4-installed server works and leaves installer state unchanged'
+
 # Failures during execution.
 setup two; result=0; MOCK_UPDATE_EXIT=100 run 'bijwerken\n' "$work/update-fail" --system-update || result=$?
 [[ $result == 1 ]] && grep -q 'apt-get update mislukt; geen upgrade' "$work/update-fail" && [[ $(apt_actions) == 'simulate simulate update' ]]

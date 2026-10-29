@@ -1,6 +1,14 @@
 # Changelog
 
-## 1.0.0-bash.6 (kandidaat, niet gepubliceerd)
+## 1.0.0-bash.6 (releasekandidaat, nog niet gepubliceerd)
+
+Live accepted by the owner on Ubuntu 26.04.1 for the combined profile (commit 40c4d02); APP-only and DB-only not live-tested.
+Release-readiness fixes after that test (display only, no installation or update logic changed):
+
+- Preflight counts the RAM check (same 4 GiB threshold as the system check), so the verdict no longer reports `0 WARN` while a RAM warning was shown.
+- The final progress line of a completed installation reads `DONE 10/10` instead of `STOPPED 10/10`; `STOPPED` remains for interrupted runs.
+- Tests prove that option 5 only proceeds on the exact word `bijwerken` (also after a changed plan and for a stale approval).
+
 
 - Consolidation: this bash.4-based line is the single maintained installer; the unpublished 1.1/1.2 Python line is not continued.
 - Menu 0-6 with explicit labels; 4 compact read-only status, 5 system update, 6 read-only control. CLI: `--summary`, `--system-update`, `--control`.

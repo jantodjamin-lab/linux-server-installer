@@ -139,3 +139,10 @@ fresh; write_state app complete 'system plan swap app_packages codex nginx resum
 bash "$work/fixture/install.sh" --status > "$work/details"
 grep -q 'Installerversie:' "$work/details" && grep -q 'Voltooide stappen:' "$work/details"
 echo 'PASS --status keeps the detailed view'
+
+# A server installed by bash.4: status reads it and names the older version, without writes.
+fresh; write_state combined complete 'system plan swap app_packages codex nginx postgres database_check resume verification' ''
+sed -i 's/^version=.*/version=1.0.0-bash.4/' "$STATE/state"
+MOCK_SWAP=4294967296 MOCK_VERSIONS='nginx=1.26.0-1ubuntu2 postgresql-18=18.6-1' MOCK_ACTIVE='nginx postgresql@18-main' summary "$work/bash4" 0
+grep -q "Installer/release *$version (installatie gedaan met 1.0.0-bash.4)" "$work/bash4" && grep -q 'Toestand *voltooid' "$work/bash4"
+echo 'PASS status of a bash.4-installed server is read-only and names the installing version'

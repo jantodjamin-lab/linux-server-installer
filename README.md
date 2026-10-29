@@ -10,7 +10,7 @@ met drie profielen: **APP**, **DB** of **APP + DB**. Niet voor productie gevalid
 | `1.0.0-bash.4` | Gepubliceerde prerelease; **huidige aanbevolen route** | Git `78f8c2c`; de tarball is byte-voor-byte reproduceerbaar met `tools/release.sh` |
 | `1.1.0-bash.3` | Als prerelease gepubliceerd, **niet aanbevolen** | Bron niet in deze repository (wel reproduceerbaar uit niet-publieke ontwikkelhistorie); vereist Python; de eigen release notes noemen het een niet-vrijgegeven ontwikkelkandidaat |
 | `1.0.0-bash.5` | Kandidaat, niet gepubliceerd, vervangen door bash.6 | Branch `feature/uli-one-command-001` |
-| `1.0.0-bash.6` | **Kandidaat op deze branch, niet gepubliceerd** | Branch `feature/uli-consolidation-002`: de gekozen, enige verder te ontwikkelen lijn (bash.4 + bash.5 + menu, systeemupdate, kleuren, status). De niet-publieke 1.1/1.2-lijn wordt niet voortgezet |
+| `1.0.0-bash.6` | **Releasekandidaat, nog niet gepubliceerd** (combined-profiel live geaccepteerd; zie hieronder) | Branch `feature/uli-consolidation-002`: de gekozen, enige verder te ontwikkelen lijn (bash.4 + bash.5 + menu, systeemupdate, kleuren, status). De niet-publieke 1.1/1.2-lijn wordt niet voortgezet |
 
 Versienummers zijn vaste pins, geen upgradepad: een server die met een andere
 versie is geïnstalleerd, wordt door een nieuwe versie niet stilzwijgend
@@ -53,7 +53,7 @@ of rebootwijziging.
 - Er zijn geen uitgeverhandtekeningen. HTTPS en GitHub zijn de transportlaag,
   geen herkomstbewijs.
 
-## Kandidaat 1.0.0-bash.6 (niet gepubliceerd)
+## Releasekandidaat 1.0.0-bash.6 (nog niet gepubliceerd)
 
 Eén menu:
 
@@ -100,13 +100,55 @@ een systeemupdate; er gebeurt niets zonder terminal en zonder het woord `bijwerk
 - **Controle (6)** en de preflight vóór elke installatiebevestiging uit bash.5
   zijn functioneel ongewijzigd (nu met kleurlabels).
 
-Lokaal gebouwde, deterministische pins (nog **niet** gepubliceerd; de URL
-geeft nu 404):
+### Live-acceptatie (door de eigenaar, 29 oktober 2026)
+
+Op een schone Ubuntu 26.04.1-testhost, commit `40c4d02`, profiel **APP + DB (combined)**:
+
+| Controle | Uitslag |
+| --- | --- |
+| Schone installatie | PASS — 10/10 stappen, `COMPLETE` |
+| Componenten | PASS — .NET 10.0.113, Node 22.22.1, npm 9.2.0, Codex CLI 0.128.0, Nginx actief, PostgreSQL 18.6, swap 4 GiB |
+| Herstart vóór update | PASS — status, Nginx, PostgreSQL en swap blijven werken |
+| Systeem bijwerken (5) | PASS — 66 Ubuntu-pakketten bijgewerkt, auditrapport aangemaakt, geen automatische herstart; daarna `dpkg --audit` leeg en diensten actief |
+| Herstart ná update | PASS — status `COMPLETE`, tools en swap OK, geen herstart meer vereist |
+| APP-only, DB-only | **Niet live getest** — alleen offline (gemockt) bewezen |
+
+Optionele Ubuntu Pro/ESM-updates vallen buiten de standaard `apt upgrade` en
+dus buiten menukeuze 5.
+
+Na `40c4d02` zijn alleen twee weergavecorrecties gedaan die tijdens die test
+opvielen (zie CHANGELOG): de RAM-waarschuwing telt nu mee in de
+controle-uitslag, en een voltooide installatie eindigt met `DONE 10/10` in
+plaats van `STOPPED 10/10`. De installatie- en updatelogica is ongewijzigd.
+
+### Pins (lokaal gebouwd, deterministisch; nog niet gepubliceerd)
 
 | Bestand | SHA256 |
 | --- | --- |
-| `universal-linux-installer-1.0.0-bash.6.tar.gz` | `dd5796a6a1f526c279de1c5d07f99de9a1a415fd8c9b717b225e1583fb64f691` |
-| `bootstrap.sh` (standaard-URL's) | `348618de9752704eda7629296435218e3c96dfa802b838843b477a38e3d3da65` |
+| `universal-linux-installer-1.0.0-bash.6.tar.gz` | `64171ef6d1f67f79e76920a7a0fba7f2f2755214974a0bcc64832f36e676dd20` |
+| `bootstrap.sh` (standaard-URL's) | `8481178940339c20f18f0d7d8b02bcb19c4fb9b7589e8b10176a73caa6a213f8` |
+
+De downloadadressen onder `releases/download/v1.0.0-bash.6/` bestaan pas na
+publicatie. Tot dan blijft het bash.4-commando hierboven de werkende route.
+Na publicatie wordt het één-commando:
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo uli-bootstrap.sh https://github.com/jantodjamin-lab/linux-server-installer/releases/download/v1.0.0-bash.6/bootstrap.sh && echo '8481178940339c20f18f0d7d8b02bcb19c4fb9b7589e8b10176a73caa6a213f8  uli-bootstrap.sh' | sha256sum -c - && bash uli-bootstrap.sh
+```
+
+### Migratie en compatibiliteit
+
+- **Bestaande bash.4-installatie**: bash.6 installeert er niet overheen
+  (andere installerversie ⇒ harde STOP, status ongewijzigd). Status (4),
+  controle (6) en systeem bijwerken (5) werken wel op zo'n server. Een nieuwe
+  installatie met bash.6 vereist een schone server of snapshot.
+- **Menunummers**: zie de tabel hierboven. Wie gewend is aan bash.4 "5 =
+  afsluiten" komt nu bij het updateplan; daar gebeurt niets zonder het
+  woord `bijwerken`. Afsluiten is `0`.
+- **`install-now`** (bash.4-registratie) blijft de bash.4-bootstrap starten;
+  voor bash.6 gebruikt u het nieuwe één-commando.
+- **Codex** blijft vastgepind op `0.128.0`; menukeuze 5 werkt alleen
+  Ubuntu-pakketten bij, niet Codex.
 
 ## Geavanceerde routes
 
