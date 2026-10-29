@@ -7,7 +7,7 @@ met drie profielen: **APP**, **DB** of **APP + DB**. Niet voor productie gevalid
 
 | Versie | Status | Bron |
 | --- | --- | --- |
-| `1.0.0-bash.4` | Gepubliceerde prerelease; vorige versie, blijft beschikbaar | Git `78f8c2c`; de tarball is byte-voor-byte reproduceerbaar met `tools/release.sh` |
+| `1.0.0-bash.4` | Gepubliceerde prerelease; vorige versie, blijft beschikbaar | [Release](https://github.com/jantodjamin-lab/linux-server-installer/releases/tag/v1.0.0-bash.4); broncommit `78f8c2c` in de Git-historie |
 | `1.1.0-bash.3` | Als prerelease gepubliceerd, **niet aanbevolen** | Bron niet in deze repository (wel reproduceerbaar uit niet-publieke ontwikkelhistorie); vereist Python; de eigen release notes noemen het een niet-vrijgegeven ontwikkelkandidaat |
 | `1.0.0-bash.5` | Kandidaat, niet gepubliceerd, vervangen door bash.6 | Branch `feature/uli-one-command-001` |
 | `1.0.0-bash.6` | **Gepubliceerde prerelease (29 oktober 2026); aanbevolen route** — combined-profiel live geaccepteerd, APP-only en DB-only nog niet live getest | [Release](https://github.com/jantodjamin-lab/linux-server-installer/releases/tag/v1.0.0-bash.6), tag `v1.0.0-bash.6` = `0db1998` op `bash-v1`: de gekozen, enige verder te ontwikkelen lijn (bash.4 + bash.5 + menu, systeemupdate, kleuren, status). De niet-publieke 1.1/1.2-lijn wordt niet voortgezet |
@@ -135,8 +135,10 @@ plaats van `STOPPED 10/10`. De installatie- en updatelogica is ongewijzigd.
 | `universal-linux-installer-1.0.0-bash.6.tar.gz` | `64171ef6d1f67f79e76920a7a0fba7f2f2755214974a0bcc64832f36e676dd20` |
 | `bootstrap.sh` | `8481178940339c20f18f0d7d8b02bcb19c4fb9b7589e8b10176a73caa6a213f8` |
 
-De gepubliceerde bestanden zijn byte-gelijk aan een schone herbouw vanaf tag
-`v1.0.0-bash.6` met `tools/release.sh` (GNU tar 1.35, gzip 1.12).
+De gepubliceerde bestanden zijn byte-gelijk aan een schone, deterministische
+herbouw (GNU tar 1.35, gzip 1.12). De broncode van de installer staat in deze
+repository; het archief bevat exact `install.sh`, `VERSION`, `bash/` en
+`tools/register-install-now.sh` plus een interne `FILES.sha256`.
 
 ### Migratie en compatibiliteit
 
@@ -161,24 +163,23 @@ De gepubliceerde bestanden zijn byte-gelijk aan een schone herbouw vanaf tag
 - **Status**: `bash uli-bootstrap.sh --status`
 - **Offline**: download de tarball en `SHA256SUMS` van de release, controleer met
   `sha256sum -c SHA256SUMS`, pak uit en start `bash install.sh`.
-- **`install-now` registreren** (`install-now.sh`, bash.4): blijft werken voor
+- **`install-now` registreren** ([`install-now.sh`](https://github.com/jantodjamin-lab/linux-server-installer/releases/tag/v1.0.0-install-now.1), bash.4): blijft werken voor
   bestaande gebruikers, maar is voor nieuwe gebruikers niet meer nodig. Het
   eerste script van die route wordt niet zelf gecontroleerd.
 
-## Bouwen en testen (offline)
+## Inhoud van deze repository
 
-```bash
-bash tests/run.sh        # alle offline contracttests, met mocks; geen sudo of systeemwijziging
-bash tests/release.sh    # deterministische build, exacte payload, checksums
-bash tools/release.sh    # release/universal-linux-installer-$(cat VERSION).tar.gz
-bash tools/render-bootstrap.sh "$(cat VERSION)" release/universal-linux-installer-$(cat VERSION).tar.gz out/
-```
+Deze repository bevat alleen wat nodig is om de installer te gebruiken en te
+controleren:
 
-Provenance van bash.4 nagaan: pak `git archive 78f8c2c` uit, kopieer
-`tools/release.sh` van deze branch erin en bouw; de hash moet
-`3e86da621994748b5687dd5edd35948328e9e2eb6a712185a150402a46baa931` zijn
-(getest met GNU tar 1.35 en gzip 1.12).
+| Pad | Inhoud |
+| --- | --- |
+| `install.sh`, `VERSION`, `bash/` | Installer-runtime (gelijk aan de inhoud van het release-archief) |
+| `tools/register-install-now.sh` | Runtime voor de `install-now`-registratie (ook in het archief) |
+| `README.md`, `SECURITY.md`, `CHANGELOG.md`, `RELEASE-NOTES-*.md` | Gebruikersinformatie |
 
-Bestanden in de root (`bootstrap.sh`, `BOOTSTRAP.sha256`, `SHA256SUMS`,
-`install-now.sh`, de bash.4-tarball) zijn de ongewijzigde gepubliceerde
-bash.4-distributie. De bash.6-bestanden staan alleen bij de GitHub-release.
+Installatiebestanden (bootstrap, archief, checksums) staan uitsluitend bij de
+[GitHub-releases](https://github.com/jantodjamin-lab/linux-server-installer/releases).
+Ontwikkeling, tests en het bouwen van releases gebeuren in een niet-publieke
+ontwikkelomgeving; eerdere ontwikkelbestanden blijven zichtbaar in de
+Git-historie van deze repository.
