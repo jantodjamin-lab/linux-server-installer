@@ -7,10 +7,10 @@ met drie profielen: **APP**, **DB** of **APP + DB**. Niet voor productie gevalid
 
 | Versie | Status | Bron |
 | --- | --- | --- |
-| `1.0.0-bash.4` | Gepubliceerde prerelease; **huidige aanbevolen route** | Git `78f8c2c`; de tarball is byte-voor-byte reproduceerbaar met `tools/release.sh` |
+| `1.0.0-bash.4` | Gepubliceerde prerelease; vorige versie, blijft beschikbaar | Git `78f8c2c`; de tarball is byte-voor-byte reproduceerbaar met `tools/release.sh` |
 | `1.1.0-bash.3` | Als prerelease gepubliceerd, **niet aanbevolen** | Bron niet in deze repository (wel reproduceerbaar uit niet-publieke ontwikkelhistorie); vereist Python; de eigen release notes noemen het een niet-vrijgegeven ontwikkelkandidaat |
 | `1.0.0-bash.5` | Kandidaat, niet gepubliceerd, vervangen door bash.6 | Branch `feature/uli-one-command-001` |
-| `1.0.0-bash.6` | **Releasekandidaat, nog niet gepubliceerd** (combined-profiel live geaccepteerd; zie hieronder) | Branch `feature/uli-consolidation-002`: de gekozen, enige verder te ontwikkelen lijn (bash.4 + bash.5 + menu, systeemupdate, kleuren, status). De niet-publieke 1.1/1.2-lijn wordt niet voortgezet |
+| `1.0.0-bash.6` | **Gepubliceerde prerelease (29 oktober 2026); aanbevolen route** — combined-profiel live geaccepteerd, APP-only en DB-only nog niet live getest | [Release](https://github.com/jantodjamin-lab/linux-server-installer/releases/tag/v1.0.0-bash.6), tag `v1.0.0-bash.6` = `0db1998` op `bash-v1`: de gekozen, enige verder te ontwikkelen lijn (bash.4 + bash.5 + menu, systeemupdate, kleuren, status). De niet-publieke 1.1/1.2-lijn wordt niet voortgezet |
 
 Versienummers zijn vaste pins, geen upgradepad: een server die met een andere
 versie is geïnstalleerd, wordt door een nieuwe versie niet stilzwijgend
@@ -18,7 +18,14 @@ opnieuw verwerkt (harde STOP, status blijft ongewijzigd).
 
 ## Aanbevolen: één commando
 
-Plak in een terminal op de server, als **gewone gebruiker** (niet als root):
+Versie **1.0.0-bash.6** (prerelease). Plak in een terminal op de server, als
+**gewone gebruiker** (niet als root), bij voorkeur in uw thuismap:
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSLo uli-bootstrap.sh https://github.com/jantodjamin-lab/linux-server-installer/releases/download/v1.0.0-bash.6/bootstrap.sh && echo '8481178940339c20f18f0d7d8b02bcb19c4fb9b7589e8b10176a73caa6a213f8  uli-bootstrap.sh' | sha256sum -c - && bash uli-bootstrap.sh
+```
+
+Vorige versie 1.0.0-bash.4 (blijft werken):
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fsSLo uli-bootstrap.sh https://github.com/jantodjamin-lab/linux-server-installer/releases/download/v1.0.0-bash.4/bootstrap.sh && echo '51f6681f01ffc7c2c007266f7c98ba354972ed4139fc50034b1fc46d349c109d  uli-bootstrap.sh' | sha256sum -c - && bash uli-bootstrap.sh
@@ -53,7 +60,7 @@ of rebootwijziging.
 - Er zijn geen uitgeverhandtekeningen. HTTPS en GitHub zijn de transportlaag,
   geen herkomstbewijs.
 
-## Releasekandidaat 1.0.0-bash.6 (nog niet gepubliceerd)
+## Versie 1.0.0-bash.6 (prerelease)
 
 Eén menu:
 
@@ -121,20 +128,15 @@ opvielen (zie CHANGELOG): de RAM-waarschuwing telt nu mee in de
 controle-uitslag, en een voltooide installatie eindigt met `DONE 10/10` in
 plaats van `STOPPED 10/10`. De installatie- en updatelogica is ongewijzigd.
 
-### Pins (lokaal gebouwd, deterministisch; nog niet gepubliceerd)
+### Pins (gepubliceerd 29 oktober 2026)
 
 | Bestand | SHA256 |
 | --- | --- |
 | `universal-linux-installer-1.0.0-bash.6.tar.gz` | `64171ef6d1f67f79e76920a7a0fba7f2f2755214974a0bcc64832f36e676dd20` |
-| `bootstrap.sh` (standaard-URL's) | `8481178940339c20f18f0d7d8b02bcb19c4fb9b7589e8b10176a73caa6a213f8` |
+| `bootstrap.sh` | `8481178940339c20f18f0d7d8b02bcb19c4fb9b7589e8b10176a73caa6a213f8` |
 
-De downloadadressen onder `releases/download/v1.0.0-bash.6/` bestaan pas na
-publicatie. Tot dan blijft het bash.4-commando hierboven de werkende route.
-Na publicatie wordt het één-commando:
-
-```bash
-curl --proto '=https' --tlsv1.2 -fsSLo uli-bootstrap.sh https://github.com/jantodjamin-lab/linux-server-installer/releases/download/v1.0.0-bash.6/bootstrap.sh && echo '8481178940339c20f18f0d7d8b02bcb19c4fb9b7589e8b10176a73caa6a213f8  uli-bootstrap.sh' | sha256sum -c - && bash uli-bootstrap.sh
-```
+De gepubliceerde bestanden zijn byte-gelijk aan een schone herbouw vanaf tag
+`v1.0.0-bash.6` met `tools/release.sh` (GNU tar 1.35, gzip 1.12).
 
 ### Migratie en compatibiliteit
 
@@ -179,4 +181,4 @@ Provenance van bash.4 nagaan: pak `git archive 78f8c2c` uit, kopieer
 
 Bestanden in de root (`bootstrap.sh`, `BOOTSTRAP.sha256`, `SHA256SUMS`,
 `install-now.sh`, de bash.4-tarball) zijn de ongewijzigde gepubliceerde
-bash.4-distributie.
+bash.4-distributie. De bash.6-bestanden staan alleen bij de GitHub-release.
