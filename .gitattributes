@@ -1,0 +1,3 @@
+# Keep historical code in Git while excluding it from generated source archives.
+/archive export-ignore
+/archive/** export-ignore
