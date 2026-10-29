@@ -47,7 +47,9 @@ status_collect() {
   case $STATUS in
     ''|new) STATUS_KIND=none;;
     complete) STATUS_KIND=complete;;
-    failed) STATUS_KIND=failed;;
+    failed)
+      # Ctrl+C / TERM / HUP during a step is recorded as failed with the signal exit code.
+      if [[ ${LAST_ERROR:-} =~ _exit_(129|130|143)$ ]]; then STATUS_KIND=interrupted; else STATUS_KIND=failed; fi;;
     running)
       # A held installer lock means a live run; a free lock means an interruption.
       STATUS_KIND=running_unknown
@@ -70,7 +72,7 @@ status_summary() {
     none) status_line PASS 'Toestand' 'niet geïnstalleerd';;
     complete) status_line PASS 'Toestand' 'voltooid';;
     running) status_line WARN 'Toestand' 'bezig (installatie actief)';;
-    interrupted) status_line WARN 'Toestand' 'onderbroken';;
+    interrupted) status_line WARN 'Toestand' "onderbroken${LAST_ERROR:+ ($LAST_ERROR)}";;
     running_unknown) status_line WARN 'Toestand' 'bezig of onderbroken (niet vast te stellen zonder administratorrechten)';;
     failed) status_line FAIL 'Toestand' "fout${LAST_ERROR:+ ($LAST_ERROR)}";;
     unreadable) status_line WARN 'Toestand' 'onbekend; status alleen als administrator leesbaar';;

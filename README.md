@@ -105,8 +105,8 @@ geeft nu 404):
 
 | Bestand | SHA256 |
 | --- | --- |
-| `universal-linux-installer-1.0.0-bash.6.tar.gz` | `540d3813a2198240e26fe998ca6742fc9f49d4163ac396915439563b5a5004fc` |
-| `bootstrap.sh` (standaard-URL's) | `a605bc43c465a10a23a950e0a4a9979f6584892260996f7909a4259e908451f6` |
+| `universal-linux-installer-1.0.0-bash.6.tar.gz` | `dd5796a6a1f526c279de1c5d07f99de9a1a415fd8c9b717b225e1583fb64f691` |
+| `bootstrap.sh` (standaard-URL's) | `348618de9752704eda7629296435218e3c96dfa802b838843b477a38e3d3da65` |
 
 ## Geavanceerde routes
 

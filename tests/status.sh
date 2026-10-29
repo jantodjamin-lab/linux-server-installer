@@ -108,7 +108,10 @@ fresh; write_state app complete 'system' ''
 printf 'profile=$(touch %s/injected)\n' "$work" > "$STATE/state"
 summary "$work/corrupt" 1
 grep -q 'FAIL  Toestand *statusbestand onleesbaar of beschadigd' "$work/corrupt" && [[ ! -e $work/injected ]]
-echo 'PASS failed and corrupt state are FAIL; state data is never executed'
+fresh; write_state database failed 'system plan swap' postgres step_postgres_exit_130
+summary "$work/signal" 0
+grep -q 'WARN  Toestand *onderbroken (step_postgres_exit_130)' "$work/signal" && grep -q 'veilig te hervatten' "$work/signal"
+echo 'PASS failed and corrupt state are FAIL; signal interruption is WARN onderbroken; state data is never executed'
 
 fresh; mkdir -p "$ULI_ROOT/var/lib/universal-linux-installer-status" "$STATE"
 printf 'UNIVERSAL LINUX INSTALLER\nVersie: %s\nProfiel: app\nStatus: COMPLETE\nVoortgang: 8/8 (100%%)\nVoltooide stappen: system plan swap app_packages codex nginx resume verification\nActuele stap: geen\nStart: x\nEinde: y\nLaatste wijziging: 2026-10-28T11:00:00Z\nLaatste fout: geen\n' "$version" > "$ULI_ROOT/var/lib/universal-linux-installer-status/status"
